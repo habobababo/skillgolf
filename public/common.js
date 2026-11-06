@@ -363,86 +363,116 @@
     ctx.restore();
   }
 
-  /** Vorhergesagte Flugbahn – wird mit der Länge dünner und blasser, aber nie dünner als minWidth */
+  /**
+   * Vorhergesagte Flugbahn. Sichtbar ist nur der Anteil opts.portion (0–1) der Strecke;
+   * die Linie wird bis zum sichtbaren Ende dünner/blasser (Mindestdicke preview.minWidth).
+   * Endmarkierungen (Loch/Wasser/Ruhepunkt) gibt es nur bei voller Vorschau.
+   */
   function drawPrediction(ctx, pred, color, opts) {
     if (!pred || !pred.points || pred.points.length < 4) return;
     opts = opts || {};
+    const cfg = P.config.preview;
+    const portion = clamp(opts.portion == null ? cfg.portion : opts.portion, 0, 1);
+    if (portion <= 0) return;
+    const full = portion >= 0.999;
     const pts = pred.points, n = pts.length / 2, t = opts.t || 0;
     const ghost = !!opts.ghost;
-    const cfg = P.config.preview;
     const w0 = ghost ? cfg.width * 0.6 : cfg.width;
     const wMin = Math.min(w0, cfg.minWidth);
     const a0 = ghost ? 0.45 : 1;
+
+    // Streckenlängen + Abpraller entlang der Bahn
+    const cum = new Float64Array(n);
+    const bounceAt = [];
+    let bi = 0;
+    const B = pred.bounces || [];
+    for (let i = 1; i < n; i++) {
+      cum[i] = cum[i - 1] + Math.hypot(pts[i * 2] - pts[i * 2 - 2], pts[i * 2 + 1] - pts[i * 2 - 1]);
+      if (bi < B.length && pts[i * 2] === B[bi] && pts[i * 2 + 1] === B[bi + 1]) { bounceAt.push(cum[i]); bi += 2; }
+    }
+    const L = cum[n - 1];
+    const V = full ? L : L * portion;          // sichtbare Länge
+    const fr = Math.max(1, Math.min(cfg.fadeLength, V)); // bis hierhin dünner/blasser werden
+    const fAt = (d) => Math.min(1, d / fr);
+
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    // Strecke entlang der Bahn -> Anteil f (0 am Ball, 1 ab fadeLength)
-    let dist = 0, s0 = 0;
     const CH = 6; // Punkte pro Teilstück
-    for (let s = 0; s < n - 1; s = s0) {
-      s0 = Math.min(n - 1, s + CH);
-      const f = Math.min(1, dist / cfg.fadeLength);
+    for (let s = 0; s < n - 1 && cum[s] < V; s += CH) {
+      const e = Math.min(n - 1, s + CH);
+      const f = fAt(cum[s]);
       const w = wMin + (w0 - wMin) * (1 - f);
       const al = a0 * (1 - cfg.fade * f);
       ctx.beginPath(); ctx.moveTo(pts[s * 2], pts[s * 2 + 1]);
-      for (let i = s + 1; i <= s0; i++) {
-        dist += Math.hypot(pts[i * 2] - pts[i * 2 - 2], pts[i * 2 + 1] - pts[i * 2 - 1]);
+      for (let i = s + 1; i <= e; i++) {
+        if (cum[i] > V) { // letztes Stück anteilig
+          const k = (V - cum[i - 1]) / Math.max(1e-9, cum[i] - cum[i - 1]);
+          ctx.lineTo(pts[i * 2 - 2] + (pts[i * 2] - pts[i * 2 - 2]) * k, pts[i * 2 - 1] + (pts[i * 2 + 1] - pts[i * 2 - 1]) * k);
+          break;
+        }
         ctx.lineTo(pts[i * 2], pts[i * 2 + 1]);
       }
-      // Glow
       ctx.strokeStyle = color; ctx.globalAlpha = al * 0.18; ctx.lineWidth = w * 3; ctx.stroke();
-      // Kern
       ctx.globalAlpha = al * 0.95; ctx.lineWidth = w; ctx.stroke();
       ctx.globalAlpha = al * 0.6; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(0.5, w * 0.35); ctx.stroke();
     }
     // Lauflicht, das die Richtung zeigt
-    ctx.globalAlpha = a0 * 0.9; ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#fff';
     const step = 14, ph = Math.floor(t * 40) % step;
-    let dd = 0;
-    for (let i = 1; i < n && i < 1200; i++) {
-      dd += Math.hypot(pts[i * 2] - pts[i * 2 - 2], pts[i * 2 + 1] - pts[i * 2 - 1]);
-      if ((i + step - ph) % step === 0) {
-        const f = Math.min(1, dd / cfg.fadeLength);
-        ctx.globalAlpha = a0 * 0.8 * (1 - cfg.fade * f);
-        ctx.beginPath(); ctx.arc(pts[i * 2], pts[i * 2 + 1], Math.max(wMin * 0.6, (wMin + (w0 - wMin) * (1 - f)) * 0.55), 0, 7); ctx.fill();
-      }
+    for (let i = 1; i < n && cum[i] < V; i++) {
+      if ((i + step - ph) % step !== 0) continue;
+      const f = fAt(cum[i]);
+      ctx.globalAlpha = a0 * 0.8 * (1 - cfg.fade * f);
+      ctx.beginPath(); ctx.arc(pts[i * 2], pts[i * 2 + 1], Math.max(wMin * 0.6, (wMin + (w0 - wMin) * (1 - f)) * 0.55), 0, 7); ctx.fill();
     }
-    // Abpraller
-    if (pred.bounces) {
-      ctx.globalAlpha = ghost ? 0.5 : 1;
-      for (let i = 0; i < pred.bounces.length; i += 2) {
-        const x = pred.bounces[i], y = pred.bounces[i + 1], s = 4 + Math.sin(t * 8 + i) * 1;
-        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y); ctx.fill();
-      }
+    // Abpraller (nur im sichtbaren Teil)
+    for (let k = 0; k < bounceAt.length; k++) {
+      if (bounceAt[k] > V) break;
+      const x = B[k * 2], y = B[k * 2 + 1], sz = 4 + Math.sin(t * 8 + k) * 1;
+      ctx.globalAlpha = (ghost ? 0.5 : 1) * (1 - cfg.fade * fAt(bounceAt[k]));
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(x, y - sz); ctx.lineTo(x + sz, y); ctx.lineTo(x, y + sz); ctx.lineTo(x - sz, y); ctx.fill();
     }
-    // vorhergesagte Puck-Bahnen
+    // vorhergesagte Puck-Bahnen (gleicher Anteil ihrer eigenen Länge)
     if (pred.ppaths && pred.pucks) {
       ctx.setLineDash([3, 5]);
       for (let i = 0; i < pred.ppaths.length; i++) {
         const pp = pred.ppaths[i], q = pred.pucks[i];
         if (!q || pp.length < 6) continue;
+        let pl = 0;
+        for (let k = 2; k < pp.length; k += 2) pl += Math.hypot(pp[k] - pp[k - 2], pp[k + 1] - pp[k - 1]);
+        const pv = full ? pl : pl * portion;
         const col = PUCK_COL[q.c] || '#fff';
         ctx.globalAlpha = ghost ? 0.16 : 0.65; ctx.strokeStyle = col; ctx.lineWidth = ghost ? 1.1 : 1.6;
         ctx.beginPath(); ctx.moveTo(pp[0], pp[1]);
-        for (let k = 2; k < pp.length; k += 2) ctx.lineTo(pp[k], pp[k + 1]);
+        let d = 0;
+        for (let k = 2; k < pp.length; k += 2) {
+          const sl = Math.hypot(pp[k] - pp[k - 2], pp[k + 1] - pp[k - 1]);
+          if (d + sl > pv) { const r = (pv - d) / Math.max(1e-9, sl); ctx.lineTo(pp[k - 2] + (pp[k] - pp[k - 2]) * r, pp[k - 1] + (pp[k + 1] - pp[k - 1]) * r); break; }
+          d += sl; ctx.lineTo(pp[k], pp[k + 1]);
+        }
         ctx.stroke();
-        const qx = pp[pp.length - 2], qy = pp[pp.length - 1];
-        if (q.alive) { ctx.beginPath(); ctx.arc(qx, qy, q.r, 0, 7); ctx.stroke(); }
-        else { ctx.beginPath(); ctx.moveTo(qx - 6, qy - 6); ctx.lineTo(qx + 6, qy + 6); ctx.moveTo(qx + 6, qy - 6); ctx.lineTo(qx - 6, qy + 6); ctx.stroke(); }
+        if (full) {
+          const qx = pp[pp.length - 2], qy = pp[pp.length - 1];
+          if (q.alive) { ctx.beginPath(); ctx.arc(qx, qy, q.r, 0, 7); ctx.stroke(); }
+          else { ctx.beginPath(); ctx.moveTo(qx - 6, qy - 6); ctx.lineTo(qx + 6, qy + 6); ctx.moveTo(qx + 6, qy - 6); ctx.lineTo(qx - 6, qy + 6); ctx.stroke(); }
+        }
       }
       ctx.setLineDash([]);
     }
-    const ex = pts[pts.length - 2], ey = pts[pts.length - 1];
-    ctx.globalAlpha = ghost ? 0.6 : 1;
-    if (pred.result === 'sunk') {
-      ctx.strokeStyle = '#7CFF9C'; ctx.lineWidth = 3; glow(ctx, '#7CFF9C', 16);
-      ctx.beginPath(); ctx.arc(ex, ey, P.HOLE_R + 8 + Math.sin(t * 8) * 3, 0, 7); ctx.stroke();
-    } else if (pred.result === 'water') {
-      ctx.strokeStyle = '#ff3860'; ctx.lineWidth = 3; glow(ctx, '#ff3860', 14);
-      ctx.beginPath(); ctx.moveTo(ex - 8, ey - 8); ctx.lineTo(ex + 8, ey + 8); ctx.moveTo(ex + 8, ey - 8); ctx.lineTo(ex - 8, ey + 8); ctx.stroke();
-    } else if (pred.result === 'rest') {
-      ctx.strokeStyle = color; ctx.lineWidth = 2; glow(ctx, color, 10);
-      ctx.beginPath(); ctx.arc(ex, ey, P.BALL_R + 2, 0, 7); ctx.stroke();
+    if (full) {
+      const ex = pts[pts.length - 2], ey = pts[pts.length - 1];
+      ctx.globalAlpha = ghost ? 0.6 : 1;
+      if (pred.result === 'sunk') {
+        ctx.strokeStyle = '#7CFF9C'; ctx.lineWidth = 3; glow(ctx, '#7CFF9C', 16);
+        ctx.beginPath(); ctx.arc(ex, ey, P.HOLE_R + 8 + Math.sin(t * 8) * 3, 0, 7); ctx.stroke();
+      } else if (pred.result === 'water') {
+        ctx.strokeStyle = '#ff3860'; ctx.lineWidth = 3; glow(ctx, '#ff3860', 14);
+        ctx.beginPath(); ctx.moveTo(ex - 8, ey - 8); ctx.lineTo(ex + 8, ey + 8); ctx.moveTo(ex + 8, ey - 8); ctx.lineTo(ex - 8, ey + 8); ctx.stroke();
+      } else if (pred.result === 'rest') {
+        ctx.strokeStyle = color; ctx.lineWidth = 2; glow(ctx, color, 10);
+        ctx.beginPath(); ctx.arc(ex, ey, P.BALL_R + 2, 0, 7); ctx.stroke();
+      }
     }
     ctx.restore();
   }
@@ -712,10 +742,10 @@
       }
       return this.pred;
     }
-    draw(ctx, ball, color, cm, maxTime, t) {
+    draw(ctx, ball, color, cm, maxTime, t, portion) {
       if (!this.enabled || !ball) return;
-      const pred = this.prediction(cm, ball, maxTime);
-      if (pred) drawPrediction(ctx, pred, color, { ghost: !this.dragging, t });
+      const pred = portion === 0 ? null : this.prediction(cm, ball, maxTime);
+      if (pred) drawPrediction(ctx, pred, color, { ghost: !this.dragging, t, portion });
       const pw = this.dragging ? this.power : this.lastPower;
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
@@ -976,7 +1006,12 @@
     }
   }
 
-  const PREVIEW_TIME = { full: 60, long: 4, medium: 1.6, short: 0.5, off: 0 };
+  /** Vorschau-Anteil aus der Raum-Einstellung ('default' = Wert aus config.json) */
+  function previewPortion(setting) {
+    if (setting == null || setting === 'default') return P.config.preview.portion;
+    const v = Number(setting);
+    return Number.isFinite(v) ? clamp(v, 0, 1) : P.config.preview.portion;
+  }
 
-  window.Skill = { NEON, PUCK_COL, PUCK_NAME, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, FX, SFX, animFx, PREVIEW_TIME, roundRect, powerColor };
+  window.Skill = { NEON, PUCK_COL, PUCK_NAME, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, FX, SFX, animFx, previewPortion, roundRect, powerColor };
 })();

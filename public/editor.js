@@ -502,7 +502,7 @@
         else if (testing.lastTrail) { testing.trailFade += dt; S.drawTrail(ctx, testing.lastTrail, '#ffe03a', Math.max(0, 1 - testing.trailFade / 4)); }
         if (!(testing.done && !testing.anim && Math.hypot(testing.ball.x - testing.cm.hole.x, testing.ball.y - testing.cm.hole.y) < 1)) S.drawBall(ctx, testing.ball.x, testing.ball.y, '#ffe03a');
         ctrl.update(dt, testing.ball);
-        ctrl.draw(ctx, testing.ball, '#ffe03a', testing.cm, 60, t);
+        ctrl.draw(ctx, testing.ball, '#ffe03a', testing.cm, 60, t, 1); // Editor: volle Vorschau
       }
     } else {
       if (!drag || drag.mode !== 'create') drawGrid(ctx);

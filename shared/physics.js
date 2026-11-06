@@ -38,6 +38,7 @@
     slopeFactor: 1,        // Multiplikator für alle Hänge
     boostFactor: 1,        // Multiplikator für alle Boosts
     preview: {             // Flugbahn-Vorschau (nur Darstellung)
+      portion: 0.25,       // sichtbarer Anteil der Flugbahn (1 = komplett bis zum Stillstand, 0 = aus)
       width: 4,            // Linienstärke am Ball
       minWidth: 1.2,       // Mindestdicke am Ende
       fade: 0.8,           // 0 = gar nicht verblassen, 1 = am Ende unsichtbar
@@ -120,6 +121,7 @@
     c.sling.slowmo = lim(c.sling.slowmo, 0.05, 1);
     c.sling.steerTime = lim(c.sling.steerTime, 0, 20);
     c.ultimate.steerTime = lim(c.ultimate.steerTime, 0, 20);
+    c.preview.portion = lim(c.preview.portion, 0, 1);
     c.preview.width = lim(c.preview.width, 0.5, 20);
     c.preview.minWidth = lim(c.preview.minWidth, 0.3, c.preview.width);
     c.preview.fade = lim(c.preview.fade, 0, 1);

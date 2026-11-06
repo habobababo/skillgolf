@@ -36,6 +36,7 @@
   "slopeFactor": 1,
   "boostFactor": 1,
   "preview": {
+    "portion": 0.25,
     "width": 4,
     "minWidth": 1.2,
     "fade": 0.8,

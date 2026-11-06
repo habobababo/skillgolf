@@ -10,7 +10,7 @@ Multiplayer-Minigolf im Browser mit eigenem Map-Editor.
 - **Profilbilder**: Jeder Spieler kann im Menü ein Bild hochladen, es erscheint auf seinem Ball. Standardbilder pro Platz legst du als `public/avatars/player1.jpg` … `player8.jpg` ab (auch `.png`/`.webp`). Sie gelten für Spieler ohne eigenes Bild und liegen per `.gitignore` nicht im Repo.
 - **7 Schläge pro Bahn.** Wer danach nicht eingelocht hat, bekommt 8 Punkte.
 - **Flugbahn-Vorschau** bis zum Stillstand, inklusive Abprallern, Hängen, Boosts, Wasser und Loch. Server und Client nutzen dieselbe deterministische Physik (`shared/physics.js`), deshalb stimmt die Vorschau exakt. Der Host kann die Länge der Vorschau einstellen (komplett/lang/mittel/kurz/aus).
-- **Multiplayer**: Räume mit 4-stelligem Code, bis zu 8 Spieler. Alle spielen dieselbe Bahn gleichzeitig. Liegende Gegnerbälle sind Hindernisse.
+- **Multiplayer**: Räume mit 4-stelligem Code, bis zu 8 Spieler. Wer den Einladungslink öffnet, ist sofort im Raum und kann den Namen in der Lobby ändern. Alle spielen dieselbe Bahn gleichzeitig. Liegende Gegnerbälle sind Hindernisse.
 - **7 eingebaute Bahnen**. Eigene Bahnen erstellst du im Editor (`/editor`) und speicherst sie auf dem Server (`maps/custom/`). Export und Import als JSON gehen auch.
 
 ## Start
@@ -45,9 +45,10 @@ nano config.json
 | `bounce.wall/block/border/bumper/ball` | | Rückprall (1 = verlustfrei, über 1 = beschleunigt) |
 | `bounce.bumperKick` | 260 | Zusätzlicher Stoß der Bumper |
 | `slopeFactor` / `boostFactor` | 1 / 1 | Multiplikator für alle Hänge bzw. Boosts |
+| `preview.portion` | 0.25 | Sichtbarer Anteil der Flugbahn-Vorschau (1 = komplett, 0 = aus). In der Lobby kann der Host das pro Raum übersteuern |
 | `preview.width` / `preview.minWidth` | 4 / 1.2 | Dicke der Flugbahn-Vorschau am Ball bzw. Mindestdicke |
 | `preview.fade` | 0.8 | Wie stark die Vorschau zum Ende verblasst (0–1) |
-| `preview.fadeLength` | 1500 | Weg in px, nach dem die Vorschau maximal dünn und blass ist |
+| `preview.fadeLength` | 1500 | Weg in px, nach dem die Vorschau maximal dünn und blass ist (höchstens bis zum sichtbaren Ende) |
 | `pucks.count` | 12 | Pucks pro Bahn (mindestens 10) |
 | `pucks.light/medium/heavy` | | `mass`, `radius`, `share` (Anteil) je Gewichtsklasse |
 | `pucks.ballMass` / `pucks.bounce` / `pucks.friction` | 1 / 0.8 / 1.4 | Masse des Balls im Vergleich, Elastizität, Reibung der Pucks |

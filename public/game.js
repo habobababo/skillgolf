@@ -33,7 +33,10 @@
     switch (m.type) {
       case 'welcome': myId = m.id; applyConfig(m.config); break;
       case 'config': applyConfig(m.config); break;
-      case 'error': toast(m.text); break;
+      case 'error':
+        toast(m.text);
+        if (!room && /nicht gefunden|voll/.test(m.text)) history.replaceState(null, '', location.pathname);
+        break;
       case 'toast': toast(m.text); break;
       case 'joined': history.replaceState(null, '', '?room=' + m.code); break;
       case 'left': room = null; history.replaceState(null, '', location.pathname); show('menu'); break;
@@ -222,7 +225,11 @@
   $('name').value = localStorage.getItem('skillshot.name') || '';
   $('name').addEventListener('change', () => localStorage.setItem('skillshot.name', myName()));
   const urlRoom = new URLSearchParams(location.search).get('room');
-  if (urlRoom) $('joinCode').value = urlRoom.toUpperCase();
+  if (urlRoom) {
+    // Einladungslink: direkt beitreten (Name/Bild aus dem letzten Besuch, in der Lobby änderbar)
+    $('joinCode').value = urlRoom.toUpperCase();
+    setTimeout(() => enter({ type: 'join', code: urlRoom.toUpperCase().trim() }), 0);
+  }
 
   async function enter(msg) {
     localStorage.setItem('skillshot.name', myName());
@@ -242,6 +249,7 @@
 
   function renderLobby() {
     if (!room) return;
+    if (document.activeElement !== $('lobbyName')) $('lobbyName').value = myName();
     $('lobbyCode').textContent = room.code;
     const ul = $('lobbyPlayers'); ul.innerHTML = '';
     for (const p of room.players) {
@@ -255,6 +263,7 @@
     $('waitHost').classList.toggle('hidden', host);
     $('setPreview').disabled = !host;
     $('setPreview').value = room.settings.preview;
+    $('setPreview').options[0].textContent = `Standard (${Math.round(P.config.preview.portion * 100)} %)`;
     for (const b of ['btnAllMaps', 'btnNoMaps']) $(b).classList.toggle('hidden', !host);
     $('btnStart').disabled = !room.playlist.length;
 
@@ -280,6 +289,13 @@
     }
     if (!list.length) box.innerHTML = '<p class="muted">Keine Bahnen ausgewählt</p>';
   }
+  $('lobbyName').addEventListener('change', () => {
+    $('name').value = $('lobbyName').value.trim().slice(0, 16);
+    localStorage.setItem('skillshot.name', myName());
+    send({ type: 'hello', name: myName() });
+  });
+  $('lobbyName').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('lobbyName').blur(); });
+  $('btnLobbyAv').onclick = () => $('avFile').click();
   $('btnStart').onclick = () => send({ type: 'start' });
   $('btnLeave').onclick = () => send({ type: 'leave' });
   $('btnCopy').onclick = () => {
@@ -493,7 +509,7 @@
           ctx.strokeStyle = mine.color; ctx.globalAlpha = 0.35 + Math.sin(t * 5) * 0.25; ctx.lineWidth = 2;
           ctx.beginPath(); ctx.arc(mine.ball.x, mine.ball.y, P.BALL_R + 18 + Math.sin(t * 5) * 3, 0, 7); ctx.stroke(); ctx.restore();
         }
-        ctrl.draw(ctx, mine.ball, mine.color, cmForMe(mine), S.PREVIEW_TIME[room.settings.preview] ?? 60, t);
+        ctrl.draw(ctx, mine.ball, mine.color, cmForMe(mine), 60, t, S.previewPortion(room.settings.preview));
       }
       fx.draw(ctx);
       for (const [, a] of anims) if (a.steering) S.drawUltOverlay(ctx, view, a, a.local ? ctrl.mouse : null, t);
