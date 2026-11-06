@@ -392,26 +392,23 @@
     fx, sfx, color: () => '#ffe03a',
     canShoot: () => !!testing && !testing.anim && !testing.done,
     getPucks: () => (testing ? { list: testing.pucks, ver: testing.pver } : null),
-    isUlt: () => testUltNext(),
+    shotMode: () => testMode(),
     onShoot: (angle, power) => {
-      const v = P.shotVelocity(angle, power);
-      const ult = testUltNext();
-      if (ult) testing.ultUsed = true;
+      const mode = testMode();
+      const v = P.shotVelocity(angle, power, mode);
+      if (mode === 'ult') testing.ultUsed = true;
       testing.shots++;
       testing.from = { ...testing.ball };
-      testing.anim = new S.BallAnim(testing.cm, testing.ball, v.vx, v.vy, null, null, { pucks: testing.pucks, ult, local: true });
+      testing.anim = new S.BallAnim(testing.cm, testing.ball, v.vx, v.vy, null, null, { pucks: testing.pucks, mode, local: true });
     },
   });
-  function testUltNext() {
-    const n = P.config.ultimate.afterShots;
-    return !!testing && n > 0 && !testing.ultUsed && !testing.done && testing.shots === n && testing.shots < P.MAX_SHOTS;
-  }
-  function steer(st) {
+  function testMode() { return testing && !testing.done ? P.shotMode(testing.shots + 1, testing.ultUsed) : null; }
+  function steer(st, a) {
     const m = ctrl.mouse;
     if (!m) return [0, 0];
     const dx = m.x - st.x, dy = m.y - st.y, d = Math.hypot(dx, dy);
     if (d < 2) return [0, 0];
-    const k = P.config.ultimate.steerAccel * Math.min(1, d / 150) / d;
+    const k = (a && a.mc ? a.mc.steerAccel : P.config.ultimate.steerAccel) * Math.min(1, d / 150) / d;
     return [Math.round(dx * k), Math.round(dy * k)];
   }
   function startTest() {
@@ -444,7 +441,9 @@
         if (r === 'water') { T.ball = T.from; toast('💦 Wasser – zurück'); }
         if (r === 'sunk') { T.done = true; toast(`⛳ Eingelocht mit ${T.shots} Schlag/Schlägen (Par ${map.par})`); }
         else if (T.shots >= P.MAX_SHOTS) { T.done = true; toast('Keine Schläge mehr'); }
-        if (testUltNext()) { toast('⚡ next BALL is ULTIMATE BALL'); sfx.alarm(); fx.screen(0.5, '255,46,136'); }
+        const nm = testMode();
+        if (nm === 'ult') { toast('⚡ next BALL is ULTIMATE BALL'); sfx.alarm(); fx.screen(0.5, '255,46,136'); }
+        else if (nm === 'sling') { toast('🌀 next BALL is SLING BALL'); sfx.sling(); }
       }
     }
     $('testInfo').textContent = T.done ? `Fertig – ${T.shots} Schläge · Leertaste/Klick = neu starten · Esc = beenden` : `Test · Schlag ${T.shots + 1}/${P.MAX_SHOTS} · Klicken & ziehen = Kraft · Esc beendet`;
@@ -489,8 +488,9 @@
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     const t = now / 1000;
     view.fit(map.width, map.height);
-    if (testing) { fx.ambient(map, dt); }
-    fx.update(dt);
+    const ws = testing && testing.anim && testing.anim.steering ? testing.anim.timeScale : 1;
+    if (testing) { fx.ambient(map, dt * ws); }
+    fx.update(dt * ws);
     view.begin(fx);
     const ctx = view.ctx;
     S.drawMap(ctx, map, t, { view, cache: false, fx });

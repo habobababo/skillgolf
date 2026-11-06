@@ -77,15 +77,17 @@
     const p = room && room.players.find((x) => x.id === m.id);
     if (!p || !cm) return;
     if (m.id === myId) awaiting = false;
-    const ult = !!m.ult;
+    const mode = m.mode || (m.ult ? 'ult' : null);
+    const ult = !!mode;
     const a = new S.BallAnim(P.withBalls(cm, m.others, m.from.x, m.from.y), m.from, m.vx, m.vy, m.end, m.result,
-      { pucks: m.pucks0, ult, local: ult && m.id === myId });
+      { pucks: m.pucks0, mode, local: ult && m.id === myId });
     a.player = p; a.final = ult ? null : m; a.born = performance.now();
     anims.set(m.id, a);
     p.shots = m.shots;
     if (ult) {
-      p.ultUsed = true; ultBy = m.id;
-      if (m.id !== myId) toast(`⚡ ${p.name}: ULTIMATE BALL!`, true);
+      ultBy = m.id;
+      if (mode === 'ult') p.ultUsed = true;
+      if (m.id !== myId) toast(mode === 'ult' ? `⚡ ${p.name}: ULTIMATE BALL!` : `🌀 ${p.name}: SLING BALL`, mode === 'ult');
     } else { p.ball = m.end; setPucks(m.pucks); }
     renderHud(); renderBoard();
   }
@@ -118,23 +120,26 @@
       if (mine) toast('💦 Wasser! Zurück zur letzten Position');
       if (mine && m.done) toast(`Keine Schläge mehr – ${P.MISS_SCORE} Punkte`);
     } else if (mine && m.done) toast(`Keine Schläge mehr – ${P.MISS_SCORE} Punkte`);
-    if (!p.done && ultimateNext(p)) {
-      if (mine) ultBanner(); else toast(`${p.name}: next BALL is ULTIMATE BALL`);
+    const nm = nextMode(p);
+    if (nm) {
+      const name = nm === 'ult' ? 'ULTIMATE BALL' : 'SLING BALL';
+      if (mine) ultBanner(nm); else if (nm === 'ult') toast(`${p.name}: next BALL is ${name}`);
     }
     renderBoard(); renderHud();
   }
 
-  /** nächster Schlag ist erzwungen Ultimate? (gleiche Regel wie der Server) */
-  function ultimateNext(p) {
-    const n = P.config.ultimate.afterShots;
-    return !!p && n > 0 && !p.ultUsed && !p.done && p.shots === n && p.shots < P.MAX_SHOTS;
-  }
+  /** Modus des nächsten Schlags ('ult' | 'sling' | null) – gleiche Regel wie der Server */
+  function nextMode(p) { return p && !p.done ? P.shotMode(p.shots + 1, p.ultUsed) : null; }
+  function ultimateNext(p) { return nextMode(p) === 'ult'; }
 
-  function ultBanner() {
-    const b = $('ultBanner');
+  let bannerTimer = null;
+  function ultBanner(mode) {
+    const b = $('ultBanner'), sl = mode === 'sling';
+    b.querySelector('b').textContent = sl ? 'SLING BALL' : 'ULTIMATE BALL';
+    b.classList.toggle('sling', sl);
     b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
-    sfx.alarm(); fx.screen(0.5, '255,46,136'); fx.shake(6);
-    setTimeout(() => b.classList.remove('show'), 3200);
+    if (sl) { sfx.sling(); fx.screen(0.3, '0,234,255'); } else { sfx.alarm(); fx.screen(0.5, '255,46,136'); fx.shake(6); }
+    clearTimeout(bannerTimer); bannerTimer = setTimeout(() => b.classList.remove('show'), 3200);
   }
 
   // ------------------------------------------------------------ Bildschirme
@@ -299,8 +304,12 @@
     const p = me();
     const used = p ? p.shots : 0;
     const un = P.config.ultimate.afterShots;
-    $('shotDots').innerHTML = Array.from({ length: P.MAX_SHOTS }, (_, i) => `<i class="${i < used ? 'used' : ''}${un > 0 && i === un ? ' ult' : ''}"></i>`).join('');
-    $('ultBadge').classList.toggle('hidden', !ultimateNext(p));
+    const sl = P.config.sling;
+    $('shotDots').innerHTML = Array.from({ length: P.MAX_SHOTS }, (_, i) => `<i class="${i < used ? 'used' : ''}${un > 0 && i === un ? ' ult' : ''}${sl.steerTime > 0 && sl.shots.includes(i + 1) ? ' sling' : ''}" title="Schlag ${i + 1}"></i>`).join('');
+    const nm = nextMode(p);
+    $('ultBadge').classList.toggle('hidden', !nm);
+    $('ultBadge').classList.toggle('sling', nm === 'sling');
+    $('ultBadge').textContent = nm === 'sling' ? '🌀 SLING BALL' : '⚡ ULTIMATE BALL';
   }
 
   function total(p) { return p.scores.reduce((a, b) => a + (b || 0), 0); }
@@ -311,7 +320,7 @@
     const b = $('board');
     const ps = room.players.slice().sort((a, c) => total(a) - total(c));
     let h = '<h4>Rangliste</h4>';
-    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<p class="muted">Nach ${P.config.ultimate.afterShots} Schlägen: <b style="color:#ff2e88">ULTIMATE BALL</b> – Pucks wegsprengen, Zeitlupe, Ball mit der Maus steuern.</p></div>`;
+    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<p class="muted">Schlag ${P.config.sling.shots.join(' & ')}: <b style="color:#00eaff">SLING BALL</b> – Ball mit der Maus lenken.<br>Schlag ${P.config.ultimate.afterShots + 1}: <b style="color:#ff2e88">ULTIMATE BALL</b> – Pucks wegsprengen, Zeitlupe, lenken.</p></div>`;
     for (const p of ps) {
       const a = anims.get(p.id);
       const rolling = a && !a.done;
@@ -371,7 +380,7 @@
       return !(a && !a.done);
     },
     getPucks: () => ({ list: pucks, ver: pucksVer }),
-    isUlt: () => ultimateNext(me()),
+    shotMode: () => nextMode(me()),
     onShoot: (angle, power) => { awaiting = true; send({ type: 'shot', angle, power }); setTimeout(() => { awaiting = false; }, 3000); },
   });
 
@@ -418,12 +427,12 @@
 
   const SPAWN_FADE = 5;
   /** Steuerung beim Ultimate: Ball beschleunigt Richtung Mauszeiger */
-  function steer(st) {
+  function steer(st, a) {
     const m = ctrl.mouse;
     if (!m) return [0, 0];
     const dx = m.x - st.x, dy = m.y - st.y, d = Math.hypot(dx, dy);
     if (d < 2) return [0, 0];
-    const k = P.config.ultimate.steerAccel * Math.min(1, d / 150) / d;
+    const k = (a && a.mc ? a.mc.steerAccel : P.config.ultimate.steerAccel) * Math.min(1, d / 150) / d;
     return [Math.round(dx * k), Math.round(dy * k)];
   } // Sekunden, die ein Schweif nach dem Stillstand nachleuchtet
   let last = performance.now();
@@ -441,8 +450,11 @@
         if (a.ballDone && a.final && !a.fired) { a.fired = true; resolveShot(a.player, a.final, a); }
         if (a.done && a.fired && a.fade > SPAWN_FADE) anims.delete(id);
       }
-      fx.ambient(map, dt);
-      fx.update(dt);
+      // Effekte laufen in der Zeitlupe mit
+      let ws = 1;
+      for (const [, a] of anims) if (a.steering) ws = Math.min(ws, a.timeScale);
+      fx.ambient(map, dt * ws);
+      fx.update(dt * ws);
       view.fit(map.width, map.height);
       view.begin(fx);
       const ctx = view.ctx;
@@ -464,15 +476,17 @@
       }
       if (mine && mine.ball) {
         ctrl.update(dt, mine.ball);
-        if (ctrl.enabled && ultimateNext(mine)) {
-          // Ultimate-Aura
+        const nm = ctrl.enabled ? nextMode(mine) : null;
+        if (nm) {
+          // Aura für Ultimate (pink/lila) bzw. Sling (cyan/grün)
+          const c1 = nm === 'ult' ? '#ff2e88' : '#00eaff', c2 = nm === 'ult' ? '#b45cff' : '#3dff7a';
           ctx.save(); ctx.globalCompositeOperation = 'lighter';
           for (let i = 0; i < 3; i++) {
-            ctx.strokeStyle = i % 2 ? '#ff2e88' : '#b45cff'; ctx.globalAlpha = 0.5 - i * 0.12; ctx.lineWidth = 3 - i * 0.6;
+            ctx.strokeStyle = i % 2 ? c1 : c2; ctx.globalAlpha = 0.5 - i * 0.12; ctx.lineWidth = 3 - i * 0.6;
             ctx.beginPath(); ctx.arc(mine.ball.x, mine.ball.y, P.BALL_R + 22 + i * 9 + Math.sin(t * 6 + i) * 4, t * (2 + i), t * (2 + i) + 4.5); ctx.stroke();
           }
           ctx.restore();
-          if (Math.random() < 0.5) fx.spark(mine.ball.x, mine.ball.y, Math.random() < 0.5 ? '#ff2e88' : '#b45cff', 1, 90, { life: 0.5, kind: 'dot' });
+          if (Math.random() < 0.5) fx.spark(mine.ball.x, mine.ball.y, Math.random() < 0.5 ? c1 : c2, 1, 90, { life: 0.5, kind: 'dot' });
         }
         if (ctrl.enabled && !ctrl.dragging) {
           ctx.save(); ctx.globalCompositeOperation = 'lighter';

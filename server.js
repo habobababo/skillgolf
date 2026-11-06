@@ -208,11 +208,8 @@ function finishPlayer(room, p, sunk) {
   p.scores[room.holeIndex] = sunk ? p.shots : P.MISS_SCORE;
 }
 
-/** Ist der nächste Schlag dieses Spielers erzwungen ein Ultimate-Schlag? */
-function ultimateDue(p) {
-  const n = P.config.ultimate.afterShots;
-  return n > 0 && !p.ultUsed && p.shots === n && p.shots < P.MAX_SHOTS;
-}
+/** Modus des nächsten Schlags: 'ult' | 'sling' | null */
+function nextMode(p) { return P.shotMode(p.shots + 1, p.ultUsed); }
 
 function othersOf(room, p) {
   const others = [];
@@ -234,20 +231,21 @@ function handleShot(room, p, msg) {
   if (Date.now() < p.busyUntil - 150) return; // Ball/Pucks rollen noch
   const angle = Number(msg.angle), power = Math.max(0, Math.min(1, Number(msg.power)));
   if (!Number.isFinite(angle) || !Number.isFinite(power) || power < 0.01) return;
-  const v = P.shotVelocity(angle, power);
+  const mode = nextMode(p);
+  const v = P.shotVelocity(angle, power, mode);
   const from = { x: p.ball.x, y: p.ball.y };
   const others = othersOf(room, p); // liegende Gegnerbälle sind Hindernisse (eingelochte nicht)
   const cmShot = P.withBalls(room.cm, others, from.x, from.y);
   const pucks0 = room.pucks;
   p.shots++;
 
-  if (ultimateDue({ ...p, shots: p.shots - 1 })) {
-    // Ultimate: Ergebnis steht erst fest, wenn die Steuerung vorbei ist
-    p.ultUsed = true;
-    const U = P.config.ultimate;
-    room.ult = { pid: p.id, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, inputs: [], max: Math.round(U.steerTime / P.DT) * 2 };
+  if (mode) {
+    // gesteuerter Schlag (Ultimate/Sling): Ergebnis steht erst fest, wenn die Steuerung vorbei ist
+    if (mode === 'ult') p.ultUsed = true;
+    const U = P.modeCfg(mode);
+    room.ult = { pid: p.id, mode, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, inputs: [], max: Math.round(U.steerTime / P.DT) * 2, accel: U.steerAccel };
     room.ult.timer = setTimeout(() => finishUltimate(room), (U.steerTime / U.slowmo + 15) * 1000);
-    broadcast(room, { type: 'shot', id: p.id, ult: true, from, others, vx: v.vx, vy: v.vy, pucks0, shots: p.shots });
+    broadcast(room, { type: 'shot', id: p.id, mode, ult: mode === 'ult', from, others, vx: v.vx, vy: v.vy, pucks0, shots: p.shots });
     return;
   }
 
@@ -261,7 +259,7 @@ function handleShot(room, p, msg) {
 function handleUltInput(room, p, msg) {
   const u = room.ult;
   if (!u || u.pid !== p.id || !Array.isArray(msg.inputs)) return;
-  const lim = P.config.ultimate.steerAccel * 1.01;
+  const lim = u.accel * 1.01;
   const chunk = [];
   for (const v of msg.inputs.slice(0, Math.max(0, u.max - u.inputs.length))) {
     const n = Math.round(Number(v));
@@ -279,7 +277,7 @@ function finishUltimate(room) {
   clearTimeout(u.timer);
   room.ult = null;
   const p = room.players.find((q) => q.id === u.pid);
-  const r = P.simulate(u.cm, u.from.x, u.from.y, u.vx, u.vy, { pucks: u.pucks0, kick: true, inputs: u.inputs });
+  const r = P.simulate(u.cm, u.from.x, u.from.y, u.vx, u.vy, { pucks: u.pucks0, kick: u.mode === 'ult', inputs: u.inputs });
   if (!p) { room.pucks = r.pucks; broadcast(room, { type: 'shotEnd', id: u.pid, pucks: r.pucks, gone: true }); return; }
   const steerT = (u.inputs.length / 2) * P.DT;
   applyResult(room, p, u.from, r, Math.max(0, r.time - steerT) * 1000);

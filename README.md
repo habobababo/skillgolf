@@ -5,7 +5,8 @@ Multiplayer-Minigolf im Browser mit eigenem Map-Editor.
 - **Schleuder-Steuerung**: Irgendwo klicken und ziehen. Die Distanz zum Klickpunkt bestimmt die Kraft, der Ball fliegt in Zugrichtung. Beim Loslassen wird geschlagen.
 - **Neon-Arcade-Look** mit vielen Effekten: Leuchtschweife hinter jedem Ball, Funken bei Treffern, aufblitzende Bumper, Screenshake, Wasser-Splash, Lochwirbel, Feuerwerk bei Birdie und Hole-in-One sowie synthetische Sounds (WebAudio, `M` schaltet den Ton stumm).
 - **Pucks**: Auf jeder Bahn liegen mindestens 10 Pucks an zufälligen Stellen. Sie werden echt simuliert und lassen sich anstoßen. Grün ist leicht, gelb mittel, rot schwer und kaum zu bewegen. Pucks können im Wasser versinken, und die Vorschau zeigt auch ihre Bahnen.
-- **ULTIMATE BALL**: Nach 5 Schlägen erscheint „next BALL is ULTIMATE BALL“, und der nächste Schlag ist erzwungen ein Ultimate-Schlag. Ein Stoß schleudert alle Pucks weg, dann läuft das Spiel in Zeitlupe und du steuerst den Ball ein paar Sekunden mit der Maus. Die anderen Spieler sehen das live und können währenddessen nicht schlagen.
+- **SLING BALL**: Schlag 2 und 4 sind Sling-Schläge. Nach dem Abschlag lenkst du den Ball 2,5 Sekunden lang mit der Maus, in leichter Zeitlupe.
+- **ULTIMATE BALL**: Nach 5 Schlägen erscheint „next BALL is ULTIMATE BALL“, und der nächste Schlag ist erzwungen ein Ultimate-Schlag. Der Ball startet mit halber Geschwindigkeit, ein Stoß schleudert alle Pucks weg, dann läuft das Spiel in Zeitlupe und du steuerst den Ball 6 Sekunden lang mit der Maus. Die anderen Spieler sehen das live und können währenddessen nicht schlagen.
 - **Profilbilder**: Jeder Spieler kann im Menü ein Bild hochladen, es erscheint auf seinem Ball. Standardbilder pro Platz legst du als `public/avatars/player1.jpg` … `player8.jpg` ab (auch `.png`/`.webp`). Sie gelten für Spieler ohne eigenes Bild und liegen per `.gitignore` nicht im Repo.
 - **7 Schläge pro Bahn.** Wer danach nicht eingelocht hat, bekommt 8 Punkte.
 - **Flugbahn-Vorschau** bis zum Stillstand, inklusive Abprallern, Hängen, Boosts, Wasser und Loch. Server und Client nutzen dieselbe deterministische Physik (`shared/physics.js`), deshalb stimmt die Vorschau exakt. Der Host kann die Länge der Vorschau einstellen (komplett/lang/mittel/kurz/aus).
@@ -52,8 +53,12 @@ nano config.json
 | `pucks.ballMass` / `pucks.bounce` / `pucks.friction` | 1 / 0.8 / 1.4 | Masse des Balls im Vergleich, Elastizität, Reibung der Pucks |
 | `ultimate.afterShots` | 5 | Nach so vielen Schlägen ist der nächste Schlag Ultimate (0 = aus) |
 | `ultimate.kickRadius` / `ultimate.kickForce` | 2500 / 3000 | Reichweite und Stärke des Wegkick-Stoßes |
+| `ultimate.launchFactor` | 0.5 | Startgeschwindigkeit des Ultimate-Balls relativ zum normalen Schlag |
 | `ultimate.slowmo` | 0.3 | Zeitlupen-Faktor |
-| `ultimate.steerTime` / `ultimate.steerAccel` | 3 / 2600 | Wie lange (Spielsekunden) und wie stark der Ball gesteuert wird |
+| `ultimate.steerTime` / `ultimate.steerAccel` | 6 / 2600 | Wie lange (Spielsekunden) und wie stark der Ball gesteuert wird |
+| `sling.shots` | [2, 4] | Schlagnummern, die Sling-Schläge sind (`[]` = aus) |
+| `sling.launchFactor` / `sling.slowmo` | 1 / 0.6 | Startgeschwindigkeit und Zeitlupe beim Sling |
+| `sling.steerTime` / `sling.steerAccel` | 2.5 / 1800 | Lenkdauer und Lenkstärke beim Sling |
 | `holeEndDelay` | 5.5 | Sekunden, die die Punktetabelle zwischen den Bahnen steht |
 | `maxPlayers` | 8 | Spieler pro Raum |
 

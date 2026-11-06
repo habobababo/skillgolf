@@ -66,9 +66,20 @@
     "afterShots": 5,
     "kickRadius": 2500,
     "kickForce": 3000,
+    "launchFactor": 0.5,
     "slowmo": 0.3,
-    "steerTime": 3,
+    "steerTime": 6,
     "steerAccel": 2600
+  },
+  "sling": {
+    "shots": [
+      2,
+      4
+    ],
+    "launchFactor": 1,
+    "slowmo": 0.6,
+    "steerTime": 2.5,
+    "steerAccel": 1800
   },
   "holeEndDelay": 5.5,
   "maxPlayers": 8

@@ -56,9 +56,17 @@
       afterShots: 5,       // nach so vielen Schlägen ist der nächste Schlag erzwungen Ultimate (0 = aus)
       kickRadius: 2500,    // Reichweite des Wegkick-Stoßes
       kickForce: 3000,     // Stärke des Stoßes (schwere Pucks fliegen weniger weit)
+      launchFactor: 0.5,   // Abschussgeschwindigkeit des Ultimate-Balls relativ zum normalen Schlag
       slowmo: 0.3,         // Zeitlupen-Faktor während der Steuerung
-      steerTime: 3,        // Spielsekunden, die der Ball gesteuert werden kann
+      steerTime: 6,        // Spielsekunden, die der Ball gesteuert werden kann
       steerAccel: 2600,    // Steuer-Beschleunigung (px/s²)
+    },
+    sling: {               // „SLING BALL“: Ball mit der Maus lenken, ohne Wegkick
+      shots: [2, 4],       // bei diesen Schlagnummern
+      launchFactor: 1,
+      slowmo: 0.6,
+      steerTime: 2.5,
+      steerAccel: 1800,
     },
     holeEndDelay: 5.5,     // Sekunden Punktetabelle zwischen den Bahnen
     maxPlayers: 8,
@@ -81,7 +89,8 @@
     if (!over || typeof over !== 'object') return out;
     for (const k of Object.keys(base)) {
       if (!(k in over)) continue;
-      if (typeof base[k] === 'object') out[k] = mergeNum(base[k], over[k]);
+      if (Array.isArray(base[k])) { if (Array.isArray(over[k])) out[k] = over[k].map(Number).filter(Number.isFinite).map(Math.round).slice(0, 20); }
+      else if (typeof base[k] === 'object') out[k] = mergeNum(base[k], over[k]);
       else { const v = Number(over[k]); if (Number.isFinite(v)) out[k] = v; }
     }
     return out;
@@ -106,6 +115,10 @@
     c.pucks.ballMass = lim(c.pucks.ballMass, 0.05, 1000);
     c.ultimate.afterShots = Math.round(lim(c.ultimate.afterShots, 0, 50));
     c.ultimate.slowmo = lim(c.ultimate.slowmo, 0.05, 1);
+    c.ultimate.launchFactor = lim(c.ultimate.launchFactor, 0.05, 3);
+    c.sling.launchFactor = lim(c.sling.launchFactor, 0.05, 3);
+    c.sling.slowmo = lim(c.sling.slowmo, 0.05, 1);
+    c.sling.steerTime = lim(c.sling.steerTime, 0, 20);
     c.ultimate.steerTime = lim(c.ultimate.steerTime, 0, 20);
     c.preview.width = lim(c.preview.width, 0.5, 20);
     c.preview.minWidth = lim(c.preview.minWidth, 0.3, c.preview.width);
@@ -222,9 +235,24 @@
     }
   }
 
-  function shotVelocity(angle, power) {
+  /** Einstellungen eines gesteuerten Schlags: 'ult' | 'sling' (sonst null) */
+  function modeCfg(mode) {
+    if (mode === 'ult' || mode === true) return { ...K.ultimate, kick: true, name: 'ult' };
+    if (mode === 'sling') return { ...K.sling, kick: false, name: 'sling' };
+    return null;
+  }
+  /** Schlag-Modus aus Schlagnummer (1-basiert) – gleiche Regel auf Server und Client */
+  function shotMode(shotNo, ultUsed) {
+    const n = K.ultimate.afterShots;
+    if (n > 0 && !ultUsed && shotNo === n + 1 && shotNo <= K.maxShots) return 'ult';
+    if (K.sling.steerTime > 0 && K.sling.shots.includes(shotNo)) return 'sling';
+    return null;
+  }
+
+  function shotVelocity(angle, power, mode) {
     power = Math.max(0, Math.min(1, num(power, 0)));
-    const sp = power * K.maxSpeed;
+    const mc = modeCfg(mode);
+    const sp = power * K.maxSpeed * (mc ? mc.launchFactor : 1);
     return { vx: Math.cos(angle) * sp, vy: Math.sin(angle) * sp };
   }
 
@@ -517,7 +545,7 @@
 
   const api = {
     DT, DEFAULTS, DEFAULT_CONFIG,
-    configure, compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap, spawnPucks, exportPucks,
+    configure, compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap, spawnPucks, exportPucks, modeCfg, shotMode,
   };
   // Live-Werte (ändern sich mit configure)
   Object.defineProperties(api, {
