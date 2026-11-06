@@ -10,8 +10,9 @@ Multiplayer-Minigolf im Browser mit eigenem Map-Editor.
 - **Profilbilder**: Jeder Spieler kann im Menü ein Bild hochladen, es erscheint auf seinem Ball. Standardbilder pro Platz legst du als `public/avatars/player1.jpg` … `player8.jpg` ab (auch `.png`/`.webp`). Sie gelten für Spieler ohne eigenes Bild und liegen per `.gitignore` nicht im Repo.
 - **7 Schläge pro Bahn.** Wer danach nicht eingelocht hat, bekommt 8 Punkte.
 - **Flugbahn-Vorschau** bis zum Stillstand, inklusive Abprallern, Hängen, Boosts, Wasser und Loch. Server und Client nutzen dieselbe deterministische Physik (`shared/physics.js`), deshalb stimmt die Vorschau exakt.
-- **Multiplayer**: Räume mit 4-stelligem Code, bis zu 8 Spieler. Wer den Einladungslink öffnet, ist sofort im Raum und kann den Namen in der Lobby ändern. Alle spielen dieselbe Bahn gleichzeitig. Liegende Gegnerbälle sind Hindernisse.
-- **7 eingebaute Bahnen**. Eigene Bahnen erstellst du im Editor (`/editor`) und speicherst sie auf dem Server (`maps/custom/`). Export und Import als JSON gehen auch.
+- **Multiplayer reihum**: Räume mit 4-stelligem Code, bis zu 8 Spieler. Wer den Einladungslink öffnet, ist sofort im Raum und kann den Namen in der Lobby ändern. Es wird abwechselnd geschlagen, wer dran ist, sieht groß „DU BIST DRAN“. Jede Bahn beginnt ein anderer Spieler, und jeder Zug hat ein Zeitlimit. Liegende Gegnerbälle sind Hindernisse.
+- **MAGNETISIEREN**: Wer gerade wartet, kann seinen liegenden Ball per Knopf (oder Taste `G`) zum Magneten machen. Er zieht dann den Ball des Schützen beim nächsten Schlag stark an. Der Schütze sieht das Magnetfeld und die verbogene Flugbahn in der Vorschau. Pro Bahn gibt es 2 Ladungen.
+- **16 eingebaute Bahnen** in drei Stufen: LEICHT, MITTEL und HART. Harte Bahnen sind rot markiert. In der Lobby sind die Bahnen nach Stufen gruppiert, mit Knöpfen zum Hinzufügen ganzer Stufen. Neue Räume starten mit allen leichten und mittleren Bahnen. Eigene Bahnen erstellst du im Editor (`/editor`) und speicherst sie auf dem Server (`maps/custom/`). Export und Import als JSON gehen auch.
 
 ## Start
 
@@ -59,6 +60,9 @@ nano config.json
 | `sling.shots` | [2, 4] | Schlagnummern, die Sling-Schläge sind (`[]` = aus) |
 | `sling.launchFactor` / `sling.slowmo` | 1 / 0.6 | Startgeschwindigkeit und Zeitlupe beim Sling |
 | `sling.steerTime` / `sling.steerAccel` | 2.5 / 1800 | Lenkdauer und Lenkstärke beim Sling |
+| `turn.timeLimit` | 45 | Sekunden pro Zug, danach ist der Nächste dran (0 = unbegrenzt) |
+| `magnet.usesPerHole` | 2 | Magnet-Ladungen pro Spieler und Bahn (0 = aus) |
+| `magnet.strength` / `magnet.radius` | 3200 / 420 | Anziehung direkt am Magneten (nimmt nach außen ab) und Reichweite |
 | `fps` | 60 | Bildrate im Browser (0 = unbegrenzt) |
 | `holeEndDelay` | 5.5 | Sekunden, die die Punktetabelle zwischen den Bahnen steht |
 | `maxPlayers` | 8 | Spieler pro Raum |
@@ -72,6 +76,7 @@ nano config.json
 | Feinjustierung des Winkels | ← / → (mit Shift grob), auch während des Ziehens |
 | Schlag per Tastatur | Leertaste schlägt mit der Vorschau-Kraft (↑ / ↓) |
 | Ton an/aus | M |
+| Magnetisieren (wenn ein anderer dran ist) | G oder Knopf |
 | Abbrechen | Rechtsklick / Esc |
 | Chat | Enter |
 
