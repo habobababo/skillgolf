@@ -36,7 +36,6 @@
   "slopeFactor": 1,
   "boostFactor": 1,
   "preview": {
-    "portion": 0.25,
     "width": 4,
     "minWidth": 1.2,
     "fade": 0.8,
@@ -82,6 +81,7 @@
     "steerTime": 2.5,
     "steerAccel": 1800
   },
+  "fps": 60,
   "holeEndDelay": 5.5,
   "maxPlayers": 8
 }

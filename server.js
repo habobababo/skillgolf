@@ -346,7 +346,7 @@ wss.on('connection', (ws) => {
         const r = {
           code: code(), hostId: p.id, players: [], phase: 'lobby', holeIndex: 0,
           playlist: listMaps().filter((m) => m.kind === 'builtin').map((m) => ({ id: m.id, name: m.name, par: m.par })),
-          settings: { preview: 'default' }, timer: null,
+          settings: {}, timer: null,
         };
         rooms.set(r.code, r);
         joinRoom(p, r);
@@ -369,7 +369,6 @@ wss.on('connection', (ws) => {
         break;
       case 'settings':
         if (!isHost) return;
-        if (['default', '1', '0.75', '0.5', '0.25', '0.1', '0'].includes(String(msg.preview))) room.settings.preview = String(msg.preview);
         syncRoom(room);
         break;
       case 'start':

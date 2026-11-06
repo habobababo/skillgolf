@@ -372,7 +372,7 @@
     if (!pred || !pred.points || pred.points.length < 4) return;
     opts = opts || {};
     const cfg = P.config.preview;
-    const portion = clamp(opts.portion == null ? cfg.portion : opts.portion, 0, 1);
+    const portion = clamp(opts.portion == null ? 1 : opts.portion, 0, 1);
     if (portion <= 0) return;
     const full = portion >= 0.999;
     const pts = pred.points, n = pts.length / 2, t = opts.t || 0;
@@ -392,7 +392,7 @@
     }
     const L = cum[n - 1];
     const V = full ? L : L * portion;          // sichtbare Länge
-    const fr = Math.max(1, Math.min(cfg.fadeLength, V)); // bis hierhin dünner/blasser werden
+    const fr = Math.max(1, full ? cfg.fadeLength : Math.min(cfg.fadeLength, V)); // bis hierhin dünner/blasser werden
     const fAt = (d) => Math.min(1, d / fr);
 
     ctx.save();
@@ -1006,12 +1006,7 @@
     }
   }
 
-  /** Vorschau-Anteil aus der Raum-Einstellung ('default' = Wert aus config.json) */
-  function previewPortion(setting) {
-    if (setting == null || setting === 'default') return P.config.preview.portion;
-    const v = Number(setting);
-    return Number.isFinite(v) ? clamp(v, 0, 1) : P.config.preview.portion;
-  }
 
-  window.Skill = { NEON, PUCK_COL, PUCK_NAME, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, FX, SFX, animFx, previewPortion, roundRect, powerColor };
+
+  window.Skill = { NEON, PUCK_COL, PUCK_NAME, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, FX, SFX, animFx, roundRect, powerColor };
 })();

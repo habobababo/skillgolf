@@ -484,7 +484,12 @@
   }
 
   let last = performance.now();
+  let lastDraw = 0;
   function frame(now) {
+    requestAnimationFrame(frame);
+    const fps = P.config.fps, iv = fps > 0 ? 1000 / fps : 0;
+    if (iv && now - lastDraw < iv - 1) return;
+    lastDraw = iv ? Math.max(lastDraw + iv, now - iv) : now;
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     const t = now / 1000;
     view.fit(map.width, map.height);
@@ -522,7 +527,6 @@
     fx.draw(ctx);
     if (testing && testing.anim && testing.anim.steering) S.drawUltOverlay(ctx, view, testing.anim, ctrl.mouse, t);
     fx.drawScreen(ctx, canvas.width, canvas.height);
-    requestAnimationFrame(frame);
   }
 
   // ------------------------------------------------------------ Start

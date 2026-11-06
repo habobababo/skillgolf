@@ -261,9 +261,6 @@
     const host = isHost();
     $('btnStart').classList.toggle('hidden', !host);
     $('waitHost').classList.toggle('hidden', host);
-    $('setPreview').disabled = !host;
-    $('setPreview').value = room.settings.preview;
-    $('setPreview').options[0].textContent = `Standard (${Math.round(P.config.preview.portion * 100)} %)`;
     for (const b of ['btnAllMaps', 'btnNoMaps']) $(b).classList.toggle('hidden', !host);
     $('btnStart').disabled = !room.playlist.length;
 
@@ -302,7 +299,6 @@
     const url = location.origin + '/?room=' + room.code;
     (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => toast('Link kopiert'), () => prompt('Link:', url));
   };
-  $('setPreview').onchange = () => send({ type: 'settings', preview: $('setPreview').value });
   $('btnAllMaps').onclick = () => send({ type: 'playlist', ids: allMaps.map((m) => m.id) });
   $('btnNoMaps').onclick = () => send({ type: 'playlist', ids: [] });
   $('btnRefreshMaps').onclick = loadMapList;
@@ -452,7 +448,13 @@
     return [Math.round(dx * k), Math.round(dy * k)];
   } // Sekunden, die ein Schweif nach dem Stillstand nachleuchtet
   let last = performance.now();
+  let lastDraw = 0;
   function frame(now) {
+    requestAnimationFrame(frame);
+    // FPS-Begrenzung (config.fps, Standard 60)
+    const fps = P.config.fps, iv = fps > 0 ? 1000 / fps : 0;
+    if (iv && now - lastDraw < iv - 1) return;
+    lastDraw = iv ? Math.max(lastDraw + iv, now - iv) : now;
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     const t = now / 1000;
     if ($('game').classList.contains('active') && map && room) {
@@ -509,7 +511,7 @@
           ctx.strokeStyle = mine.color; ctx.globalAlpha = 0.35 + Math.sin(t * 5) * 0.25; ctx.lineWidth = 2;
           ctx.beginPath(); ctx.arc(mine.ball.x, mine.ball.y, P.BALL_R + 18 + Math.sin(t * 5) * 3, 0, 7); ctx.stroke(); ctx.restore();
         }
-        ctrl.draw(ctx, mine.ball, mine.color, cmForMe(mine), 60, t, S.previewPortion(room.settings.preview));
+        ctrl.draw(ctx, mine.ball, mine.color, cmForMe(mine), 60, t);
       }
       fx.draw(ctx);
       for (const [, a] of anims) if (a.steering) S.drawUltOverlay(ctx, view, a, a.local ? ctrl.mouse : null, t);
@@ -517,7 +519,6 @@
       const pw = ctrl.dragging ? ctrl.power : ctrl.lastPower;
       $('hudPower').textContent = ctrl.enabled ? `Kraft ${(pw * 100).toFixed(0)} % · Winkel ${((ctrl.angle * 180 / Math.PI + 360) % 360).toFixed(1)}°` : '';
     }
-    requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 })();
