@@ -41,6 +41,35 @@
     "fade": 0.8,
     "fadeLength": 1500
   },
+  "pucks": {
+    "count": 12,
+    "ballMass": 1,
+    "bounce": 0.8,
+    "friction": 1.4,
+    "light": {
+      "mass": 0.6,
+      "radius": 11,
+      "share": 0.4
+    },
+    "medium": {
+      "mass": 2.5,
+      "radius": 13,
+      "share": 0.35
+    },
+    "heavy": {
+      "mass": 14,
+      "radius": 16,
+      "share": 0.25
+    }
+  },
+  "ultimate": {
+    "afterShots": 5,
+    "kickRadius": 2500,
+    "kickForce": 3000,
+    "slowmo": 0.3,
+    "steerTime": 3,
+    "steerAccel": 2600
+  },
   "holeEndDelay": 5.5,
   "maxPlayers": 8
 }

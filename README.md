@@ -4,6 +4,8 @@ Multiplayer-Minigolf im Browser mit eigenem Map-Editor.
 
 - **Schleuder-Steuerung**: Irgendwo klicken und ziehen. Die Distanz zum Klickpunkt bestimmt die Kraft, der Ball fliegt in Zugrichtung. Beim Loslassen wird geschlagen.
 - **Neon-Arcade-Look** mit vielen Effekten: Leuchtschweife hinter jedem Ball, Funken bei Treffern, aufblitzende Bumper, Screenshake, Wasser-Splash, Lochwirbel, Feuerwerk bei Birdie und Hole-in-One sowie synthetische Sounds (WebAudio, `M` schaltet den Ton stumm).
+- **Pucks**: Auf jeder Bahn liegen mindestens 10 Pucks an zufälligen Stellen. Sie werden echt simuliert und lassen sich anstoßen. Grün ist leicht, gelb mittel, rot schwer und kaum zu bewegen. Pucks können im Wasser versinken, und die Vorschau zeigt auch ihre Bahnen.
+- **ULTIMATE BALL**: Nach 5 Schlägen erscheint „next BALL is ULTIMATE BALL“, und der nächste Schlag ist erzwungen ein Ultimate-Schlag. Ein Stoß schleudert alle Pucks weg, dann läuft das Spiel in Zeitlupe und du steuerst den Ball ein paar Sekunden mit der Maus. Die anderen Spieler sehen das live und können währenddessen nicht schlagen.
 - **Profilbilder**: Jeder Spieler kann im Menü ein Bild hochladen, es erscheint auf seinem Ball. Standardbilder pro Platz legst du als `public/avatars/player1.jpg` … `player8.jpg` ab (auch `.png`/`.webp`). Sie gelten für Spieler ohne eigenes Bild und liegen per `.gitignore` nicht im Repo.
 - **7 Schläge pro Bahn.** Wer danach nicht eingelocht hat, bekommt 8 Punkte.
 - **Flugbahn-Vorschau** bis zum Stillstand, inklusive Abprallern, Hängen, Boosts, Wasser und Loch. Server und Client nutzen dieselbe deterministische Physik (`shared/physics.js`), deshalb stimmt die Vorschau exakt. Der Host kann die Länge der Vorschau einstellen (komplett/lang/mittel/kurz/aus).
@@ -45,6 +47,13 @@ nano config.json
 | `preview.width` / `preview.minWidth` | 4 / 1.2 | Dicke der Flugbahn-Vorschau am Ball bzw. Mindestdicke |
 | `preview.fade` | 0.8 | Wie stark die Vorschau zum Ende verblasst (0–1) |
 | `preview.fadeLength` | 1500 | Weg in px, nach dem die Vorschau maximal dünn und blass ist |
+| `pucks.count` | 12 | Pucks pro Bahn (mindestens 10) |
+| `pucks.light/medium/heavy` | | `mass`, `radius`, `share` (Anteil) je Gewichtsklasse |
+| `pucks.ballMass` / `pucks.bounce` / `pucks.friction` | 1 / 0.8 / 1.4 | Masse des Balls im Vergleich, Elastizität, Reibung der Pucks |
+| `ultimate.afterShots` | 5 | Nach so vielen Schlägen ist der nächste Schlag Ultimate (0 = aus) |
+| `ultimate.kickRadius` / `ultimate.kickForce` | 2500 / 3000 | Reichweite und Stärke des Wegkick-Stoßes |
+| `ultimate.slowmo` | 0.3 | Zeitlupen-Faktor |
+| `ultimate.steerTime` / `ultimate.steerAccel` | 3 / 2600 | Wie lange (Spielsekunden) und wie stark der Ball gesteuert wird |
 | `holeEndDelay` | 5.5 | Sekunden, die die Punktetabelle zwischen den Bahnen steht |
 | `maxPlayers` | 8 | Spieler pro Raum |
 

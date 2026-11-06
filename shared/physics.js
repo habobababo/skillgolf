@@ -43,6 +43,23 @@
       fade: 0.8,           // 0 = gar nicht verblassen, 1 = am Ende unsichtbar
       fadeLength: 1500,    // nach so vielen px Weg ist die Linie maximal dünn/verblasst
     },
+    pucks: {               // bewegliche Pucks (mindestens 10 pro Bahn)
+      count: 12,
+      ballMass: 1,         // Masse des Golfballs im Vergleich
+      bounce: 0.8,         // Elastizität bei Stößen
+      friction: 1.4,       // Reibungsfaktor gegenüber dem Ball
+      light: { mass: 0.6, radius: 11, share: 0.4 },
+      medium: { mass: 2.5, radius: 13, share: 0.35 },
+      heavy: { mass: 14, radius: 16, share: 0.25 },
+    },
+    ultimate: {            // „next BALL is ULTIMATE BALL“
+      afterShots: 5,       // nach so vielen Schlägen ist der nächste Schlag erzwungen Ultimate (0 = aus)
+      kickRadius: 2500,    // Reichweite des Wegkick-Stoßes
+      kickForce: 3000,     // Stärke des Stoßes (schwere Pucks fliegen weniger weit)
+      slowmo: 0.3,         // Zeitlupen-Faktor während der Steuerung
+      steerTime: 3,        // Spielsekunden, die der Ball gesteuert werden kann
+      steerAccel: 2600,    // Steuer-Beschleunigung (px/s²)
+    },
     holeEndDelay: 5.5,     // Sekunden Punktetabelle zwischen den Bahnen
     maxPlayers: 8,
   };
@@ -84,6 +101,12 @@
     c.maxShotTime = lim(c.maxShotTime, 2, 120);
     c.holeEndDelay = lim(c.holeEndDelay, 0, 60);
     c.maxPlayers = Math.round(lim(c.maxPlayers, 1, 32));
+    c.pucks.count = Math.round(lim(c.pucks.count, 10, 60));
+    for (const k of ['light', 'medium', 'heavy']) { c.pucks[k].mass = lim(c.pucks[k].mass, 0.05, 1000); c.pucks[k].radius = lim(c.pucks[k].radius, 4, 60); }
+    c.pucks.ballMass = lim(c.pucks.ballMass, 0.05, 1000);
+    c.ultimate.afterShots = Math.round(lim(c.ultimate.afterShots, 0, 50));
+    c.ultimate.slowmo = lim(c.ultimate.slowmo, 0.05, 1);
+    c.ultimate.steerTime = lim(c.ultimate.steerTime, 0, 20);
     c.preview.width = lim(c.preview.width, 0.5, 20);
     c.preview.minWidth = lim(c.preview.minWidth, 0.3, c.preview.width);
     c.preview.fade = lim(c.preview.fade, 0, 1);
@@ -168,8 +191,35 @@
     return Object.assign({}, cm, { solids: cm.solids.concat(extra) });
   }
 
-  function createState(x, y, vx, vy) {
-    return { x, y, vx, vy, t: 0, slow: 0, done: false, result: null, sx: x, sy: y, bounce: false, hitV: 0, hit: null };
+  // ---------------------------------------------------------------- Zustand
+  /**
+   * Ball-Zustand inkl. beweglicher Pucks.
+   * pucks: [{x,y,r,m,c,alive}] – c = 'light' | 'medium' | 'heavy'
+   * opts.kick: Ultimate-Stoß beim Abschlag, opts.inputs: Steuer-Beschleunigung pro Schritt [ax0,ay0,ax1,ay1,…]
+   */
+  function createState(x, y, vx, vy, pucks, opts) {
+    opts = opts || {};
+    const s = {
+      x, y, vx, vy, t: 0, n: 0, slow: 0, done: false, allDone: false, result: null, sx: x, sy: y,
+      bounce: false, hitV: 0, hit: null, pucks: pucks ? clonePucks(pucks) : [], inputs: opts.inputs || null, pevents: [],
+    };
+    if (opts.kick) ultimateKick(s);
+    return s;
+  }
+  function clonePucks(p) { return p.map((q) => ({ x: q.x, y: q.y, vx: q.vx || 0, vy: q.vy || 0, r: q.r, m: q.m, c: q.c, alive: q.alive !== false })); }
+  function exportPucks(s) { return s.pucks.map((q) => ({ x: q.x, y: q.y, r: q.r, m: q.m, c: q.c, alive: q.alive })); }
+
+  /** Ultimate: alle Pucks vom Ball wegschleudern (schwere weniger) */
+  function ultimateKick(s) {
+    const U = K.ultimate;
+    for (const q of s.pucks) {
+      if (!q.alive) continue;
+      let dx = q.x - s.x, dy = q.y - s.y, d = Math.sqrt(dx * dx + dy * dy);
+      if (d < 1e-6) { dx = 1; dy = 0; d = 1; }
+      if (d > U.kickRadius) continue;
+      const f = U.kickForce * (1 - 0.6 * d / U.kickRadius) / Math.sqrt(q.m);
+      q.vx += dx / d * f; q.vy += dy / d * f;
+    }
   }
 
   function shotVelocity(angle, power) {
@@ -178,45 +228,40 @@
     return { vx: Math.cos(angle) * sp, vy: Math.sin(angle) * sp };
   }
 
-  function collide(cm, s) {
-    const r = K.ballRadius;
+  /** Körper b (Radius r) gegen feste Objekte; rec = Treffer für Effekte merken */
+  function collideStatic(cm, b, r, rec) {
     for (let i = 0; i < cm.solids.length; i++) {
       const o = cm.solids[i];
       let nx = 0, ny = 0, pen = 0;
       if (o.kind === 'seg') {
         const dx = o.bx - o.ax, dy = o.by - o.ay;
         const l2 = dx * dx + dy * dy;
-        let t = l2 > 0 ? ((s.x - o.ax) * dx + (s.y - o.ay) * dy) / l2 : 0;
+        let t = l2 > 0 ? ((b.x - o.ax) * dx + (b.y - o.ay) * dy) / l2 : 0;
         t = t < 0 ? 0 : t > 1 ? 1 : t;
-        const px = o.ax + dx * t, py = o.ay + dy * t;
-        const ex = s.x - px, ey = s.y - py;
-        const d2 = ex * ex + ey * ey;
-        const rr = r + o.rad;
+        const ex = b.x - (o.ax + dx * t), ey = b.y - (o.ay + dy * t);
+        const d2 = ex * ex + ey * ey, rr = r + o.rad;
         if (d2 >= rr * rr) continue;
         const d = Math.sqrt(d2);
         if (d > 1e-9) { nx = ex / d; ny = ey / d; } else if (l2 > 0) { const l = Math.sqrt(l2); nx = -dy / l; ny = dx / l; } else { nx = 1; ny = 0; }
         pen = rr - d;
       } else if (o.kind === 'circle') {
-        const ex = s.x - o.x, ey = s.y - o.y;
-        const d2 = ex * ex + ey * ey;
-        const rr = r + o.r;
+        const ex = b.x - o.x, ey = b.y - o.y;
+        const d2 = ex * ex + ey * ey, rr = r + o.r;
         if (d2 >= rr * rr) continue;
         const d = Math.sqrt(d2);
         if (d > 1e-9) { nx = ex / d; ny = ey / d; } else { nx = 1; ny = 0; }
         pen = rr - d;
-      } else { // rect
-        if (s.x < o.x1 - r || s.x > o.x2 + r || s.y < o.y1 - r || s.y > o.y2 + r) continue;
-        const cx = s.x < o.x1 ? o.x1 : s.x > o.x2 ? o.x2 : s.x;
-        const cy = s.y < o.y1 ? o.y1 : s.y > o.y2 ? o.y2 : s.y;
-        const ex = s.x - cx, ey = s.y - cy;
-        const d2 = ex * ex + ey * ey;
+      } else {
+        if (b.x < o.x1 - r || b.x > o.x2 + r || b.y < o.y1 - r || b.y > o.y2 + r) continue;
+        const cx = b.x < o.x1 ? o.x1 : b.x > o.x2 ? o.x2 : b.x;
+        const cy = b.y < o.y1 ? o.y1 : b.y > o.y2 ? o.y2 : b.y;
+        const ex = b.x - cx, ey = b.y - cy, d2 = ex * ex + ey * ey;
         if (d2 > 1e-12) {
           if (d2 >= r * r) continue;
           const d = Math.sqrt(d2);
           nx = ex / d; ny = ey / d; pen = r - d;
         } else {
-          // Mittelpunkt im Rechteck -> kürzester Weg hinaus
-          const l = s.x - o.x1, rt = o.x2 - s.x, tp = s.y - o.y1, bt = o.y2 - s.y;
+          const l = b.x - o.x1, rt = o.x2 - b.x, tp = b.y - o.y1, bt = o.y2 - b.y;
           let m = l; nx = -1; ny = 0;
           if (rt < m) { m = rt; nx = 1; ny = 0; }
           if (tp < m) { m = tp; nx = 0; ny = -1; }
@@ -224,101 +269,215 @@
           pen = m + r;
         }
       }
-      // auflösen
-      s.x += nx * pen; s.y += ny * pen;
-      const vn = s.vx * nx + s.vy * ny;
+      b.x += nx * pen; b.y += ny * pen;
+      const vn = b.vx * nx + b.vy * ny;
       if (vn < 0) {
-        s.vx -= (1 + o.e) * vn * nx;
-        s.vy -= (1 + o.e) * vn * ny;
-        if (o.kick) { s.vx += nx * o.kick; s.vy += ny * o.kick; }
-        if (vn < -40) { s.bounce = true; if (-vn > s.hitV) { s.hitV = -vn; s.hit = o; } }
+        b.vx -= (1 + o.e) * vn * nx;
+        b.vy -= (1 + o.e) * vn * ny;
+        if (o.kick) { b.vx += nx * o.kick; b.vy += ny * o.kick; }
+        if (rec && vn < -40) { b.bounce = true; if (-vn > b.hitV) { b.hitV = -vn; b.hit = o; } }
       }
     }
+  }
+
+  /** Stoß zweier Kreise; Masse 0 = unbeweglich. Gibt die Aufprallgeschwindigkeit zurück. */
+  function collidePair(a, ma, b, mb, e, ra, rb) {
+    const dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy, rr = ra + rb;
+    if (d2 >= rr * rr) return 0;
+    const ia = ma > 0 ? 1 / ma : 0, ib = mb > 0 ? 1 / mb : 0, sum = ia + ib;
+    if (sum === 0) return 0;
+    const d = Math.sqrt(d2);
+    let nx = 1, ny = 0;
+    if (d > 1e-9) { nx = dx / d; ny = dy / d; }
+    const pen = rr - d;
+    a.x -= nx * pen * ia / sum; a.y -= ny * pen * ia / sum;
+    b.x += nx * pen * ib / sum; b.y += ny * pen * ib / sum;
+    const vrel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+    if (vrel >= 0) return 0;
+    const j = -(1 + e) * vrel / sum;
+    a.vx -= j * ia * nx; a.vy -= j * ia * ny;
+    b.vx += j * ib * nx; b.vy += j * ib * ny;
+    return -vrel;
   }
 
   function inRect(z, x, y) { return x >= z.x1 && x <= z.x2 && y >= z.y1 && y <= z.y2; }
 
-  /** einen Zeitschritt simulieren */
-  function step(cm, s) {
-    if (s.done) return;
-    s.bounce = false; s.hitV = 0; s.hit = null;
-    const SURF = K.surfaces, HOLE_R = K.holeRadius;
-    let ax = 0, ay = 0, surf = SURF.grass, water = false;
+  /** Kräfte + Reibung für einen Körper; gibt false zurück, wenn er im Wasser landet */
+  function applyForces(cm, b, fric, extraAx, extraAy) {
+    const SURF = K.surfaces;
+    let ax = extraAx, ay = extraAy, surf = SURF.grass;
     for (let i = 0; i < cm.zones.length; i++) {
       const z = cm.zones[i];
-      if (!inRect(z, s.x, s.y)) continue;
-      if (z.kind === 'water') water = true;
+      if (!inRect(z, b.x, b.y)) continue;
+      if (z.kind === 'water') return false;
       else if (z.kind === 'sand') surf = SURF.sand;
       else if (z.kind === 'ice') surf = SURF.ice;
       else { ax += z.fx; ay += z.fy; }
     }
-    if (water) { s.done = true; s.result = 'water'; return; }
-
-    // Lochsog
-    const hx = cm.hole.x - s.x, hy = cm.hole.y - s.y;
-    const hd = Math.sqrt(hx * hx + hy * hy);
-    if (hd < HOLE_R && hd > 1e-6) { ax += (hx / hd) * K.holePull; ay += (hy / hd) * K.holePull; }
-
-    s.vx += ax * DT; s.vy += ay * DT;
-    let sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
+    b.vx += ax * DT; b.vy += ay * DT;
+    const dec = surf.decel * fric;
+    let sp = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
     if (sp > 0) {
-      let ns = sp - (surf.decel + surf.drag * sp) * DT;
+      let ns = sp - (dec + surf.drag * sp) * DT;
       if (ns < 0) ns = 0;
       if (ns > K.speedCap) ns = K.speedCap;
       const k = ns / sp;
-      s.vx *= k; s.vy *= k; sp = ns;
+      b.vx *= k; b.vy *= k; sp = ns;
+    }
+    b._a2 = ax * ax + ay * ay; b._dec = dec; b._sp = sp;
+    return true;
+  }
+
+  /** einen Zeitschritt simulieren (Ball + Pucks) */
+  function step(cm, s) {
+    if (s.allDone) return;
+    const HOLE_R = K.holeRadius, PK = K.pucks, BR = K.ballRadius;
+    s.bounce = false; s.hitV = 0; s.hit = null;
+    let maxSp = 0;
+
+    // --- Ball: Kräfte
+    if (!s.done) {
+      let ex = 0, ey = 0;
+      const hx = cm.hole.x - s.x, hy = cm.hole.y - s.y, hd = Math.sqrt(hx * hx + hy * hy);
+      if (hd < HOLE_R && hd > 1e-6) { ex += (hx / hd) * K.holePull; ey += (hy / hd) * K.holePull; }
+      if (s.inputs && s.n * 2 + 1 < s.inputs.length) { ex += s.inputs[s.n * 2]; ey += s.inputs[s.n * 2 + 1]; }
+      if (!applyForces(cm, s, 1, ex, ey)) { s.done = true; s.result = 'water'; }
+      else maxSp = s._sp;
+    }
+    // --- Pucks: Kräfte
+    for (let i = 0; i < s.pucks.length; i++) {
+      const q = s.pucks[i];
+      if (!q.alive) continue;
+      if (!applyForces(cm, q, PK.friction, 0, 0)) { q.alive = false; q.vx = q.vy = 0; s.pevents.push({ type: 'sink', x: q.x, y: q.y, c: q.c }); continue; }
+      if (q._sp < STOP_SPEED && q._a2 < q._dec * q._dec) { q.vx = 0; q.vy = 0; q._sp = 0; }
+      if (q._sp > maxSp) maxSp = q._sp;
     }
 
-    // Bewegung in Teilschritten (kein Tunneln durch dünne Wände)
-    const dist = sp * DT;
-    const n = Math.max(1, Math.ceil(dist / (K.ballRadius * 0.35)));
+    // --- Bewegung in Teilschritten
+    const n = Math.max(1, Math.ceil(maxSp * DT / (BR * 0.35)));
     const sdt = DT / n;
-    for (let i = 0; i < n; i++) {
-      s.x += s.vx * sdt; s.y += s.vy * sdt;
-      collide(cm, s);
-      const dx = cm.hole.x - s.x, dy = cm.hole.y - s.y;
-      const d2 = dx * dx + dy * dy;
-      const cr = Math.max(1, HOLE_R - 3);
-      if (d2 < cr * cr) {
-        const v2 = s.vx * s.vx + s.vy * s.vy;
-        if (v2 < K.captureSpeed * K.captureSpeed) {
-          s.x = cm.hole.x; s.y = cm.hole.y; s.vx = 0; s.vy = 0;
-          s.done = true; s.result = 'sunk'; s.t += DT; return;
+    const ballSolid = s.result !== 'sunk' && s.result !== 'water';
+    for (let k = 0; k < n; k++) {
+      if (!s.done) { s.x += s.vx * sdt; s.y += s.vy * sdt; collideStatic(cm, s, BR, true); }
+      for (let i = 0; i < s.pucks.length; i++) {
+        const q = s.pucks[i];
+        if (!q.alive || (q.vx === 0 && q.vy === 0)) continue;
+        q.x += q.vx * sdt; q.y += q.vy * sdt;
+        collideStatic(cm, q, q.r, false);
+      }
+      if (ballSolid) {
+        for (let i = 0; i < s.pucks.length; i++) {
+          const q = s.pucks[i];
+          if (!q.alive) continue;
+          const imp = collidePair(s, s.done ? 0 : PK.ballMass, q, q.m, PK.bounce, BR, q.r);
+          if (imp > 40 && !s.done) { s.bounce = true; if (imp > s.hitV) { s.hitV = imp; s.hit = { kind: 'puck', c: q.c, m: q.m }; } }
+        }
+      }
+      for (let i = 0; i < s.pucks.length; i++) {
+        const a = s.pucks[i];
+        if (!a.alive) continue;
+        for (let j = i + 1; j < s.pucks.length; j++) {
+          const b = s.pucks[j];
+          if (!b.alive || (a.vx === 0 && a.vy === 0 && b.vx === 0 && b.vy === 0)) continue;
+          const imp = collidePair(a, a.m, b, b.m, PK.bounce, a.r, b.r);
+          if (imp > 120 && s.pevents.length < 200) s.pevents.push({ type: 'pp', x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, v: imp });
+        }
+      }
+      if (!s.done) {
+        const dx = cm.hole.x - s.x, dy = cm.hole.y - s.y, cr = Math.max(1, HOLE_R - 3);
+        if (dx * dx + dy * dy < cr * cr && s.vx * s.vx + s.vy * s.vy < K.captureSpeed * K.captureSpeed) {
+          s.x = cm.hole.x; s.y = cm.hole.y; s.vx = 0; s.vy = 0; s.done = true; s.result = 'sunk';
         }
       }
     }
 
-    s.t += DT;
-    sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
-    const a2 = ax * ax + ay * ay;
-    if (sp < STOP_SPEED) {
-      if (a2 < surf.decel * surf.decel) { s.vx = 0; s.vy = 0; s.done = true; s.result = 'rest'; return; }
+    s.t += DT; s.n++;
+    // --- Ball-Ende
+    if (!s.done) {
+      const sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
+      if (sp < STOP_SPEED && s._a2 < s._dec * s._dec) { s.vx = 0; s.vy = 0; s.done = true; s.result = 'rest'; }
+      else {
+        if (sp < STOP_SPEED * 6) s.slow += DT; else s.slow = 0;
+        if (s.slow > 1.2) { s.vx = 0; s.vy = 0; s.done = true; s.result = 'rest'; }
+      }
     }
-    if (sp < STOP_SPEED * 6) s.slow += DT; else s.slow = 0;
-    if (s.slow > 1.2 || s.t > K.maxShotTime) { s.vx = 0; s.vy = 0; s.done = true; s.result = 'rest'; }
+    // --- Pucks-Ende
+    let moving = false;
+    for (let i = 0; i < s.pucks.length; i++) {
+      const q = s.pucks[i];
+      if (!q.alive) continue;
+      if (q.vx * q.vx + q.vy * q.vy < STOP_SPEED * STOP_SPEED) { q.vx = 0; q.vy = 0; }
+      if (q.vx !== 0 || q.vy !== 0) moving = true;
+    }
+    if (s.t > K.maxShotTime) {
+      if (!s.done) { s.done = true; s.result = 'rest'; s.vx = 0; s.vy = 0; }
+      for (const q of s.pucks) { q.vx = 0; q.vy = 0; }
+      moving = false;
+    }
+    s.allDone = s.done && !moving;
   }
 
   /**
    * Kompletten Schlag simulieren.
-   * opts.record: Pfadpunkte sammeln, opts.every: jeden n-ten Schritt, opts.maxTime: Abbruch (Vorschau)
+   * opts: record (Pfade sammeln), every, maxTime (Vorschau-Abbruch), pucks, kick, inputs
    */
   function simulate(cm, x, y, vx, vy, opts) {
     opts = opts || {};
-    const s = createState(x, y, vx, vy);
+    const s = createState(x, y, vx, vy, opts.pucks, opts);
     const every = opts.every || 2;
     const maxT = Math.min(opts.maxTime || 1e9, K.maxShotTime + 1);
     const points = opts.record ? [x, y] : null;
     const bounces = opts.record ? [] : null;
-    let steps = 0;
-    while (!s.done && s.t < maxT) {
+    const ppaths = opts.record ? s.pucks.map((q) => [q.x, q.y]) : null;
+    let ballDoneAt = -1;
+    while (!s.allDone && s.t < maxT) {
       step(cm, s);
-      steps++;
       if (points) {
-        if (s.bounce) { bounces.push(s.x, s.y); points.push(s.x, s.y); }
-        else if (steps % every === 0 || s.done) points.push(s.x, s.y);
+        if (!s.done || ballDoneAt < 0) {
+          if (s.bounce) { bounces.push(s.x, s.y); points.push(s.x, s.y); }
+          else if (s.n % every === 0 || s.done) points.push(s.x, s.y);
+        }
+        if (s.n % (every * 2) === 0) for (let i = 0; i < s.pucks.length; i++) {
+          const q = s.pucks[i], pp = ppaths[i];
+          if (q.alive && (pp[pp.length - 2] !== q.x || pp[pp.length - 1] !== q.y)) pp.push(q.x, q.y);
+        }
       }
+      if (s.done && ballDoneAt < 0) ballDoneAt = s.t;
     }
-    return { x: s.x, y: s.y, result: s.done ? s.result : 'cut', steps, time: s.t, points, bounces };
+    if (ppaths) for (let i = 0; i < s.pucks.length; i++) { const q = s.pucks[i]; ppaths[i].push(q.x, q.y); }
+    return {
+      x: s.x, y: s.y, result: s.done ? s.result : 'cut', steps: s.n, time: s.t, ballTime: ballDoneAt < 0 ? s.t : ballDoneAt,
+      points, bounces, ppaths, pucks: exportPucks(s),
+    };
+  }
+
+  // ---------------------------------------------------------------- Pucks verteilen
+  function rng(seed) {
+    let a = seed >>> 0;
+    return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  /** mindestens 10 Pucks zufällig, aber nicht in Hindernissen, Wasser, am Loch oder Abschlag */
+  function spawnPucks(cm, seed) {
+    const R = rng(seed), PK = K.pucks, out = [];
+    const count = Math.max(10, Math.round(PK.count));
+    const classes = ['light', 'medium', 'heavy'];
+    const shares = classes.map((c) => Math.max(0, PK[c].share));
+    const tot = shares.reduce((a, b) => a + b, 0) || 1;
+    for (let tries = 0; out.length < count && tries < 6000; tries++) {
+      let u = R() * tot, ci = 0;
+      while (ci < 2 && u > shares[ci]) { u -= shares[ci]; ci++; }
+      const c = classes[ci], r = PK[c].radius, m = PK[c].mass;
+      const x = r + 10 + R() * (cm.W - 2 * r - 20), y = r + 10 + R() * (cm.H - 2 * r - 20);
+      if ((x - cm.hole.x) ** 2 + (y - cm.hole.y) ** 2 < 80 * 80) continue;
+      if ((x - cm.start.x) ** 2 + (y - cm.start.y) ** 2 < 90 * 90) continue;
+      if (cm.zones.some((z) => z.kind === 'water' && x > z.x1 - r && x < z.x2 + r && y > z.y1 - r && y < z.y2 + r)) continue;
+      if (out.some((q) => (q.x - x) ** 2 + (q.y - y) ** 2 < (q.r + r + 8) ** 2)) continue;
+      const t = { x, y, vx: 0, vy: 0, hitV: 0 };
+      collideStatic(cm, t, r + 4, false);
+      if (t.x !== x || t.y !== y) continue;
+      out.push({ x: Math.round(x), y: Math.round(y), r, m, c, alive: true });
+    }
+    return out;
   }
 
   /** Map grob prüfen und bereinigen (Server + Editor) */
@@ -358,7 +517,7 @@
 
   const api = {
     DT, DEFAULTS, DEFAULT_CONFIG,
-    configure, compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap,
+    configure, compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap, spawnPucks, exportPucks,
   };
   // Live-Werte (ändern sich mit configure)
   Object.defineProperties(api, {

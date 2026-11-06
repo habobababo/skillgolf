@@ -6,6 +6,9 @@
   let ws = null, myId = null, room = null, map = null, cm = null;
   let allMaps = [];
   let awaiting = false;
+  let pucks = [], pucksVer = 0;      // Server-Stand der Pucks
+  let ultBy = null;                  // Spieler-ID, die gerade einen Ultimate-Schlag spielt
+  function setPucks(list) { pucks = list || []; pucksVer++; }
   const anims = new Map(); // playerId -> BallAnim
   const fx = new window.Skill.FX();
   const sfx = new window.Skill.SFX();
@@ -37,12 +40,14 @@
       case 'room': onRoom(m.room); break;
       case 'hole':
         if (m.config) P.configure(m.config);
-        map = m.map; cm = P.compile(map); anims.clear(); awaiting = false;
+        map = m.map; cm = P.compile(map); anims.clear(); awaiting = false; ultBy = null; setPucks(m.pucks);
         $('overlay').classList.add('hidden');
         show('game');
         toast(`Bahn ${m.index + 1}/${m.total}: ${map.name}`, true);
         break;
       case 'shot': onShot(m); break;
+      case 'shotEnd': onShotEnd(m); break;
+      case 'ultInput': { const a = anims.get(m.id); if (a && a.ult && !a.local) a.addInputs(m.inputs); break; }
       case 'holeEnd': showScoreTable(false); break;
       case 'finished': showScoreTable(true); break;
       case 'chat': chat(m); break;
@@ -60,6 +65,7 @@
     const prevPhase = room && room.phase;
     // laufende Animationen behalten Vorrang vor Server-Positionen
     room = r;
+    if (!r.ultBy) { /* lokales ultBy bleibt bis shotEnd */ } else ultBy = r.ultBy;
     if (r.phase === 'lobby') { show('lobby'); renderLobby(); }
     else if (r.phase === 'finished' && prevPhase !== 'finished') showScoreTable(true);
     else if (r.phase === 'finished') showScoreTable(true);
@@ -71,29 +77,64 @@
     const p = room && room.players.find((x) => x.id === m.id);
     if (!p || !cm) return;
     if (m.id === myId) awaiting = false;
-    const a = new S.BallAnim(P.withBalls(cm, m.others, m.from.x, m.from.y), m.from, m.vx, m.vy, m.end, m.result);
-    a.player = p; a.msg = m;
+    const ult = !!m.ult;
+    const a = new S.BallAnim(P.withBalls(cm, m.others, m.from.x, m.from.y), m.from, m.vx, m.vy, m.end, m.result,
+      { pucks: m.pucks0, ult, local: ult && m.id === myId });
+    a.player = p; a.final = ult ? null : m; a.born = performance.now();
     anims.set(m.id, a);
-    p.shots = m.shots; p.ball = m.end;
-    // done/score erst nach der Animation übernehmen (Spannung!)
-    a.onDone = () => {
-      p.done = m.done; p.sunk = m.sunk;
-      if (m.score != null) p.scores[room.holeIndex] = m.score;
-      const mine = m.id === myId;
-      if (m.result === 'sunk') {
-        const par = map.par, s = m.shots;
-        const word = s === 1 ? 'HOLE-IN-ONE!' : s <= par - 2 ? 'EAGLE!' : s === par - 1 ? 'BIRDIE!' : s === par ? 'PAR' : s === par + 1 ? 'BOGEY' : `+${s - par}`;
-        fx.text(map.hole.x, map.hole.y - 40, word, p.color, s === 1 ? 54 : s < par ? 40 : 30);
-        if (s === 1 || s <= par - 1) celebrate(p.color, s === 1);
-        toast(mine ? `⛳ ${word} (${s} Schl.)` : `${p.name}: ${word}`, mine);
-      } else if (m.result === 'water') {
-        fx.text(a.pos.x, a.pos.y - 20, 'SPLASH!', '#5aa0ff', 26);
-        if (mine) toast('💦 Wasser! Zurück zur letzten Position');
-        if (mine && m.done) toast(`Keine Schläge mehr – ${P.MISS_SCORE} Punkte`);
-      } else if (mine && m.done) toast(`Keine Schläge mehr – ${P.MISS_SCORE} Punkte`);
-      renderBoard(); renderHud();
-    };
+    p.shots = m.shots;
+    if (ult) {
+      p.ultUsed = true; ultBy = m.id;
+      if (m.id !== myId) toast(`⚡ ${p.name}: ULTIMATE BALL!`, true);
+    } else { p.ball = m.end; setPucks(m.pucks); }
     renderHud(); renderBoard();
+  }
+
+  function onShotEnd(m) {
+    if (ultBy === m.id) ultBy = null;
+    setPucks(m.pucks);
+    const p = room && room.players.find((x) => x.id === m.id);
+    if (!p || m.gone) return;
+    p.ball = m.end; p.shots = m.shots;
+    const a = anims.get(m.id);
+    if (a && a.ult) { a.finish(m.end, m.result); a.final = m; }
+    else resolveShot(p, m, null);
+  }
+
+  /** Ergebnis eines Schlags anzeigen, sobald der Ball (in der Animation) liegt */
+  function resolveShot(p, m, a) {
+    p.done = m.done; p.sunk = m.sunk;
+    if (m.score != null) p.scores[room.holeIndex] = m.score;
+    const mine = p.id === myId;
+    const pos = a ? a.pos : m.end;
+    if (m.result === 'sunk') {
+      const par = map.par, s = m.shots;
+      const word = s === 1 ? 'HOLE-IN-ONE!' : s <= par - 2 ? 'EAGLE!' : s === par - 1 ? 'BIRDIE!' : s === par ? 'PAR' : s === par + 1 ? 'BOGEY' : `+${s - par}`;
+      fx.text(map.hole.x, map.hole.y - 40, word, p.color, s === 1 ? 54 : s < par ? 40 : 30);
+      if (s === 1 || s <= par - 1) celebrate(p.color, s === 1);
+      toast(mine ? `⛳ ${word} (${s} Schl.)` : `${p.name}: ${word}`, mine);
+    } else if (m.result === 'water') {
+      fx.text(pos.x, pos.y - 20, 'SPLASH!', '#5aa0ff', 26);
+      if (mine) toast('💦 Wasser! Zurück zur letzten Position');
+      if (mine && m.done) toast(`Keine Schläge mehr – ${P.MISS_SCORE} Punkte`);
+    } else if (mine && m.done) toast(`Keine Schläge mehr – ${P.MISS_SCORE} Punkte`);
+    if (!p.done && ultimateNext(p)) {
+      if (mine) ultBanner(); else toast(`${p.name}: next BALL is ULTIMATE BALL`);
+    }
+    renderBoard(); renderHud();
+  }
+
+  /** nächster Schlag ist erzwungen Ultimate? (gleiche Regel wie der Server) */
+  function ultimateNext(p) {
+    const n = P.config.ultimate.afterShots;
+    return !!p && n > 0 && !p.ultUsed && !p.done && p.shots === n && p.shots < P.MAX_SHOTS;
+  }
+
+  function ultBanner() {
+    const b = $('ultBanner');
+    b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
+    sfx.alarm(); fx.screen(0.5, '255,46,136'); fx.shake(6);
+    setTimeout(() => b.classList.remove('show'), 3200);
   }
 
   // ------------------------------------------------------------ Bildschirme
@@ -257,7 +298,9 @@
     $('btnSkip').classList.toggle('hidden', !isHost());
     const p = me();
     const used = p ? p.shots : 0;
-    $('shotDots').innerHTML = Array.from({ length: P.MAX_SHOTS }, (_, i) => `<i class="${i < used ? 'used' : ''}"></i>`).join('');
+    const un = P.config.ultimate.afterShots;
+    $('shotDots').innerHTML = Array.from({ length: P.MAX_SHOTS }, (_, i) => `<i class="${i < used ? 'used' : ''}${un > 0 && i === un ? ' ult' : ''}"></i>`).join('');
+    $('ultBadge').classList.toggle('hidden', !ultimateNext(p));
   }
 
   function total(p) { return p.scores.reduce((a, b) => a + (b || 0), 0); }
@@ -268,6 +311,7 @@
     const b = $('board');
     const ps = room.players.slice().sort((a, c) => total(a) - total(c));
     let h = '<h4>Rangliste</h4>';
+    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<p class="muted">Nach ${P.config.ultimate.afterShots} Schlägen: <b style="color:#ff2e88">ULTIMATE BALL</b> – Pucks wegsprengen, Zeitlupe, Ball mit der Maus steuern.</p></div>`;
     for (const p of ps) {
       const a = anims.get(p.id);
       const rolling = a && !a.done;
@@ -277,7 +321,7 @@
       else st = rolling ? 'rollt …' : `Schlag <b>${p.shots + 1}</b> / ${P.MAX_SHOTS}`;
       h += `<div class="bp ${p.id === myId ? 'me' : ''}"><div class="top">${avatarHtml(p)}<span class="nm">${esc(p.name)}</span>${p.id === room.hostId ? '👑' : ''}<span class="tot">${total(p)}</span></div><div class="st">${st}</div></div>`;
     }
-    b.innerHTML = h;
+    b.innerHTML = h + (room.phase === 'lobby' ? '' : legend);
   }
   function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
@@ -322,10 +366,12 @@
     color: () => (me() ? me().color : '#fff'),
     canShoot: () => {
       const p = me();
-      if (!room || room.phase !== 'playing' || !p || p.done || awaiting || !cm) return false;
+      if (!room || room.phase !== 'playing' || !p || p.done || awaiting || !cm || ultBy) return false;
       const a = anims.get(myId);
       return !(a && !a.done);
     },
+    getPucks: () => ({ list: pucks, ver: pucksVer }),
+    isUlt: () => ultimateNext(me()),
     onShoot: (angle, power) => { awaiting = true; send({ type: 'shot', angle, power }); setTimeout(() => { awaiting = false; }, 3000); },
   });
 
@@ -370,18 +416,30 @@
     }
   }
 
-  const SPAWN_FADE = 5; // Sekunden, die ein Schweif nach dem Stillstand nachleuchtet
+  const SPAWN_FADE = 5;
+  /** Steuerung beim Ultimate: Ball beschleunigt Richtung Mauszeiger */
+  function steer(st) {
+    const m = ctrl.mouse;
+    if (!m) return [0, 0];
+    const dx = m.x - st.x, dy = m.y - st.y, d = Math.hypot(dx, dy);
+    if (d < 2) return [0, 0];
+    const k = P.config.ultimate.steerAccel * Math.min(1, d / 150) / d;
+    return [Math.round(dx * k), Math.round(dy * k)];
+  } // Sekunden, die ein Schweif nach dem Stillstand nachleuchtet
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     const t = now / 1000;
     if ($('game').classList.contains('active') && map && room) {
       for (const [id, a] of anims) {
-        const wasDone = a.done;
-        a.update(dt);
+        a.update(dt, a.local ? steer : null);
         S.animFx(a, fx, sfx, a.player ? a.player.color : '#fff', map, dt);
-        if (!wasDone && a.done && a.onDone) a.onDone();
-        if (a.done && a.fade > SPAWN_FADE) anims.delete(id);
+        if (a.local) {
+          if (a.inputs.length > a.sent) { send({ type: 'ultInput', inputs: a.inputs.slice(a.sent) }); a.sent = a.inputs.length; }
+          if (!a.endSent && (a.ballDone || a.s.n >= a.steerSteps)) { a.endSent = true; send({ type: 'ultEnd' }); }
+        }
+        if (a.ballDone && a.final && !a.fired) { a.fired = true; resolveShot(a.player, a.final, a); }
+        if (a.done && a.fired && a.fade > SPAWN_FADE) anims.delete(id);
       }
       fx.ambient(map, dt);
       fx.update(dt);
@@ -392,16 +450,30 @@
       const mine = me();
       // Leuchtschweife (Curve-Linien) aller Schläge
       for (const [, a] of anims) if (a.player) S.drawTrail(ctx, a.trail, a.player.color, a.done ? Math.max(0, 1 - a.fade / SPAWN_FADE) : 1);
+      // Pucks: aus der jüngsten laufenden Animation, sonst Server-Stand
+      let live = null;
+      for (const [, a] of anims) if (!a.done && (!live || a.born > live.born)) live = a;
+      S.drawPucks(ctx, live ? live.pucks : pucks, t);
       const ordered = room.players.slice().sort((a, b) => (a.id === myId) - (b.id === myId));
       for (const p of ordered) {
         if (!p.ball) continue;
         const a = anims.get(p.id);
-        if (p.done && p.sunk && !(a && !a.done)) continue; // im Loch
+        if (p.done && p.sunk && !(a && !a.ballDone)) continue; // im Loch
         const pos = ballPos(p);
         S.drawBall(ctx, pos.x, pos.y, p.color, p.id === myId ? null : p.name, p.id === myId ? 1 : 0.85, img(avatarOf(p)));
       }
       if (mine && mine.ball) {
         ctrl.update(dt, mine.ball);
+        if (ctrl.enabled && ultimateNext(mine)) {
+          // Ultimate-Aura
+          ctx.save(); ctx.globalCompositeOperation = 'lighter';
+          for (let i = 0; i < 3; i++) {
+            ctx.strokeStyle = i % 2 ? '#ff2e88' : '#b45cff'; ctx.globalAlpha = 0.5 - i * 0.12; ctx.lineWidth = 3 - i * 0.6;
+            ctx.beginPath(); ctx.arc(mine.ball.x, mine.ball.y, P.BALL_R + 22 + i * 9 + Math.sin(t * 6 + i) * 4, t * (2 + i), t * (2 + i) + 4.5); ctx.stroke();
+          }
+          ctx.restore();
+          if (Math.random() < 0.5) fx.spark(mine.ball.x, mine.ball.y, Math.random() < 0.5 ? '#ff2e88' : '#b45cff', 1, 90, { life: 0.5, kind: 'dot' });
+        }
         if (ctrl.enabled && !ctrl.dragging) {
           ctx.save(); ctx.globalCompositeOperation = 'lighter';
           ctx.strokeStyle = mine.color; ctx.globalAlpha = 0.35 + Math.sin(t * 5) * 0.25; ctx.lineWidth = 2;
@@ -410,6 +482,7 @@
         ctrl.draw(ctx, mine.ball, mine.color, cmForMe(mine), S.PREVIEW_TIME[room.settings.preview] ?? 60, t);
       }
       fx.draw(ctx);
+      for (const [, a] of anims) if (a.steering) S.drawUltOverlay(ctx, view, a, a.local ? ctrl.mouse : null, t);
       fx.drawScreen(ctx, canvas.width, canvas.height);
       const pw = ctrl.dragging ? ctrl.power : ctrl.lastPower;
       $('hudPower').textContent = ctrl.enabled ? `Kraft ${(pw * 100).toFixed(0)} % · Winkel ${((ctrl.angle * 180 / Math.PI + 360) % 360).toFixed(1)}°` : '';

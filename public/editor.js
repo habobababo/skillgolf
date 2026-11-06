@@ -391,19 +391,36 @@
   const ctrl = new S.ShotController(canvas, view, {
     fx, sfx, color: () => '#ffe03a',
     canShoot: () => !!testing && !testing.anim && !testing.done,
+    getPucks: () => (testing ? { list: testing.pucks, ver: testing.pver } : null),
+    isUlt: () => testUltNext(),
     onShoot: (angle, power) => {
       const v = P.shotVelocity(angle, power);
+      const ult = testUltNext();
+      if (ult) testing.ultUsed = true;
       testing.shots++;
       testing.from = { ...testing.ball };
-      testing.anim = new S.BallAnim(testing.cm, testing.ball, v.vx, v.vy, null, null);
+      testing.anim = new S.BallAnim(testing.cm, testing.ball, v.vx, v.vy, null, null, { pucks: testing.pucks, ult, local: true });
     },
   });
+  function testUltNext() {
+    const n = P.config.ultimate.afterShots;
+    return !!testing && n > 0 && !testing.ultUsed && !testing.done && testing.shots === n && testing.shots < P.MAX_SHOTS;
+  }
+  function steer(st) {
+    const m = ctrl.mouse;
+    if (!m) return [0, 0];
+    const dx = m.x - st.x, dy = m.y - st.y, d = Math.hypot(dx, dy);
+    if (d < 2) return [0, 0];
+    const k = P.config.ultimate.steerAccel * Math.min(1, d / 150) / d;
+    return [Math.round(dx * k), Math.round(dy * k)];
+  }
   function startTest() {
     const probs = validate();
     if (probs.length) toast('⚠ ' + probs.join(', '));
     sel = null; renderSelProps();
     const m = P.sanitizeMap(map);
-    testing = { cm: P.compile(m), ball: { ...m.start }, shots: 0, anim: null, done: false };
+    const tcm = P.compile(m);
+    testing = { cm: tcm, ball: { ...m.start }, shots: 0, anim: null, done: false, pucks: P.spawnPucks(tcm, (Math.random() * 2 ** 31) | 0), pver: 0, ultUsed: false };
     $('bTest').textContent = '■ Test beenden';
     $('testInfo').classList.remove('hidden');
     canvas.style.cursor = 'crosshair';
@@ -416,16 +433,18 @@
   function updateTest(dt) {
     const T = testing;
     if (T.anim) {
-      T.anim.update(dt);
+      T.anim.update(dt, steer);
       S.animFx(T.anim, fx, sfx, '#ffe03a', map, dt);
       T.ball = T.anim.pos;
       if (T.anim.done) {
         const r = T.anim.s.result;
+        T.pucks = P.exportPucks(T.anim.s); T.pver++;
         T.lastTrail = T.anim.trail; T.trailFade = 0;
         T.anim = null;
         if (r === 'water') { T.ball = T.from; toast('💦 Wasser – zurück'); }
         if (r === 'sunk') { T.done = true; toast(`⛳ Eingelocht mit ${T.shots} Schlag/Schlägen (Par ${map.par})`); }
         else if (T.shots >= P.MAX_SHOTS) { T.done = true; toast('Keine Schläge mehr'); }
+        if (testUltNext()) { toast('⚡ next BALL is ULTIMATE BALL'); sfx.alarm(); fx.screen(0.5, '255,46,136'); }
       }
     }
     $('testInfo').textContent = T.done ? `Fertig – ${T.shots} Schläge · Leertaste/Klick = neu starten · Esc = beenden` : `Test · Schlag ${T.shots + 1}/${P.MAX_SHOTS} · Klicken & ziehen = Kraft · Esc beendet`;
@@ -478,6 +497,7 @@
     if (testing) {
       updateTest(dt);
       if (testing) {
+        S.drawPucks(ctx, testing.anim ? testing.anim.pucks : testing.pucks, t);
         if (testing.anim) S.drawTrail(ctx, testing.anim.trail, '#ffe03a');
         else if (testing.lastTrail) { testing.trailFade += dt; S.drawTrail(ctx, testing.lastTrail, '#ffe03a', Math.max(0, 1 - testing.trailFade / 4)); }
         if (!(testing.done && !testing.anim && Math.hypot(testing.ball.x - testing.cm.hole.x, testing.ball.y - testing.cm.hole.y) < 1)) S.drawBall(ctx, testing.ball.x, testing.ball.y, '#ffe03a');
@@ -500,6 +520,7 @@
       }
     }
     fx.draw(ctx);
+    if (testing && testing.anim && testing.anim.steering) S.drawUltOverlay(ctx, view, testing.anim, ctrl.mouse, t);
     fx.drawScreen(ctx, canvas.width, canvas.height);
     requestAnimationFrame(frame);
   }

@@ -95,3 +95,19 @@ table.score tr.win td { background: rgba(255,224,58,.12); color: #ffe03a; }
 .avbtns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .avatar { width: 18px; height: 18px; border-radius: 50%; background: rgba(20,22,60,.9) center/cover no-repeat; flex: none; box-shadow: 0 0 0 2px currentColor, 0 0 10px currentColor; display: inline-block; }
 .avatar.big { width: 64px; height: 64px; color: #00eaff; display: grid; place-items: center; font-size: 26px; }
+
+#shotDots i.ult { box-shadow: 0 0 8px #ff2e88, 0 0 16px #b45cff; background: #ff2e88; }
+#shotDots i.ult.used { background: transparent; box-shadow: inset 0 0 0 1.5px rgba(255,46,136,.5); }
+#ultBadge { font-weight: 900; font-style: italic; letter-spacing: 2px; color: #fff; padding: 3px 12px; border-radius: 14px; border: 1px solid #ff2e88; text-shadow: 0 0 10px #ff2e88; box-shadow: 0 0 16px rgba(255,46,136,.6); animation: pulse 0.9s ease-in-out infinite alternate; }
+@keyframes pulse { to { box-shadow: 0 0 28px rgba(180,92,255,.9); transform: scale(1.06); } }
+#ultBanner { position: absolute; top: 48px; left: 0; right: 230px; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; opacity: 0; }
+#ultBanner small { font-size: 38px; font-weight: 800; font-style: italic; letter-spacing: 6px; color: #fff; text-shadow: 0 0 12px #00eaff, 0 0 30px #00eaff; }
+#ultBanner b { font-size: 92px; font-weight: 900; font-style: italic; letter-spacing: 6px; line-height: 1; background: linear-gradient(90deg, #ff2e88, #ffe03a, #b45cff, #ff2e88); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 18px #ff2e88) drop-shadow(0 0 40px #b45cff); animation: ultgrad 1.2s linear infinite; }
+#ultBanner.show { animation: ultin 3.2s ease-out forwards; }
+@keyframes ultin { 0% { opacity: 0; transform: scale(2.4) rotate(-4deg); } 10% { opacity: 1; transform: scale(0.95) rotate(1deg); } 16% { transform: scale(1.05); } 22% { transform: scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: scale(1.15); } }
+@keyframes ultgrad { to { background-position: 300% 0; } }
+@media (max-width: 800px) { #ultBanner { right: 0; } #ultBanner b { font-size: 48px; } #ultBanner small { font-size: 22px; } }
+.legend { margin-top: 14px; border-top: 1px solid rgba(110,130,255,.2); padding-top: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; margin-right: 10px; font-size: 12px; }
+.legend i { width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid; box-shadow: 0 0 8px currentColor; display: inline-block; }
+.legend p { font-size: 11px; margin: 8px 0 0; }

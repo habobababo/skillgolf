@@ -7,6 +7,8 @@
     wall: '#2ef2ff', block: '#8a5cff', bumper: '#ff2e88', sand: '#ffb02e', ice: '#a6fbff',
     water: '#2f7bff', slope: '#39ff8a', boost: '#ffe600', hole: '#ffffff',
   };
+  const PUCK_COL = { light: '#39ff8a', medium: '#ffe03a', heavy: '#ff3860' };
+  const PUCK_NAME = { light: 'leicht', medium: 'mittel', heavy: 'schwer' };
   const MAX_DRAG = () => P.config.dragDistance; // CSS-Pixel Ziehweg für 100 % Kraft
 
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -297,6 +299,39 @@
     ctx.restore();
   }
 
+  /** Pucks: Farbe & Stil zeigen das Gewicht (grün leicht, gelb mittel, rot schwer) */
+  function drawPucks(ctx, pucks, t) {
+    if (!pucks) return;
+    for (const q of pucks) {
+      if (!q.alive) continue;
+      const col = PUCK_COL[q.c] || '#fff', r = q.r;
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.beginPath(); ctx.arc(q.x + 2, q.y + 3, r, 0, 7); ctx.fill();
+      const g = ctx.createRadialGradient(q.x - r * 0.35, q.y - r * 0.35, 1, q.x, q.y, r);
+      if (q.c === 'heavy') { g.addColorStop(0, '#5a2030'); g.addColorStop(1, '#1a0610'); }
+      else if (q.c === 'medium') { g.addColorStop(0, '#3a3510'); g.addColorStop(1, '#141204'); }
+      else { g.addColorStop(0, '#143a24'); g.addColorStop(1, '#06140c'); }
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, 7); ctx.fill();
+      glow(ctx, col, q.c === 'heavy' ? 16 : 10);
+      ctx.strokeStyle = col; ctx.lineWidth = q.c === 'heavy' ? 5 : q.c === 'medium' ? 3 : 2;
+      ctx.beginPath(); ctx.arc(q.x, q.y, r - ctx.lineWidth / 2, 0, 7); ctx.stroke();
+      noGlow(ctx);
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2;
+      if (q.c === 'heavy') {
+        // Gewichts-Kreuz + Nieten
+        ctx.beginPath(); ctx.moveTo(q.x - r * 0.4, q.y - r * 0.4); ctx.lineTo(q.x + r * 0.4, q.y + r * 0.4);
+        ctx.moveTo(q.x + r * 0.4, q.y - r * 0.4); ctx.lineTo(q.x - r * 0.4, q.y + r * 0.4); ctx.stroke();
+        for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + Math.PI / 4; ctx.beginPath(); ctx.arc(q.x + Math.cos(a) * r * 0.62, q.y + Math.sin(a) * r * 0.62, 1.6, 0, 7); ctx.fill(); }
+      } else if (q.c === 'medium') {
+        ctx.beginPath(); ctx.arc(q.x, q.y, r * 0.45, 0, 7); ctx.stroke();
+      } else {
+        ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 4 + q.x);
+        ctx.beginPath(); ctx.arc(q.x, q.y, r * 0.25, 0, 7); ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
   /** Leuchtschweif (Kurve) – pts: [x,y,...]; head = Anteil der letzten Punkte, die hell leuchten */
   function drawTrail(ctx, pts, color, alpha) {
     if (!pts || pts.length < 4) return;
@@ -379,6 +414,23 @@
         const x = pred.bounces[i], y = pred.bounces[i + 1], s = 4 + Math.sin(t * 8 + i) * 1;
         ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y); ctx.fill();
       }
+    }
+    // vorhergesagte Puck-Bahnen
+    if (pred.ppaths && pred.pucks) {
+      ctx.setLineDash([3, 5]);
+      for (let i = 0; i < pred.ppaths.length; i++) {
+        const pp = pred.ppaths[i], q = pred.pucks[i];
+        if (!q || pp.length < 6) continue;
+        const col = PUCK_COL[q.c] || '#fff';
+        ctx.globalAlpha = ghost ? 0.16 : 0.65; ctx.strokeStyle = col; ctx.lineWidth = ghost ? 1.1 : 1.6;
+        ctx.beginPath(); ctx.moveTo(pp[0], pp[1]);
+        for (let k = 2; k < pp.length; k += 2) ctx.lineTo(pp[k], pp[k + 1]);
+        ctx.stroke();
+        const qx = pp[pp.length - 2], qy = pp[pp.length - 1];
+        if (q.alive) { ctx.beginPath(); ctx.arc(qx, qy, q.r, 0, 7); ctx.stroke(); }
+        else { ctx.beginPath(); ctx.moveTo(qx - 6, qy - 6); ctx.lineTo(qx + 6, qy + 6); ctx.moveTo(qx + 6, qy - 6); ctx.lineTo(qx - 6, qy + 6); ctx.stroke(); }
+      }
+      ctx.setLineDash([]);
     }
     const ex = pts[pts.length - 2], ey = pts[pts.length - 1];
     ctx.globalAlpha = ghost ? 0.6 : 1;
@@ -521,6 +573,13 @@
     boost() { this.tone(220, 0.35, 'sawtooth', 0.09, 1600); this.noise(0.3, 0.12, 800, 6000, 0, 'bandpass'); }
     splash() { this.noise(0.6, 0.35, 2400, 180); this.tone(300, 0.35, 'sine', 0.15, 70); this.tone(900, 0.08, 'sine', 0.1, 300, 0.05); }
     sink() { [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.3, 'triangle', 0.18, null, i * 0.07)); this.tone(80, 0.4, 'sine', 0.3, 40); }
+    ult() {
+      this.tone(80, 1.2, 'sawtooth', 0.25, 30); this.tone(200, 0.8, 'square', 0.12, 1800);
+      this.noise(1.0, 0.5, 6000, 100); this.tone(55, 1.4, 'sine', 0.5, 25);
+      [392, 523, 659, 784].forEach((f, i) => this.tone(f, 0.5, 'sawtooth', 0.06, f * 1.5, 0.05 + i * 0.06));
+    }
+    alarm() { [0, 0.22, 0.44].forEach((d) => { this.tone(880, 0.16, 'square', 0.09, 660, d); this.tone(1320, 0.12, 'sine', 0.06, null, d); }); }
+    puck(v, m) { const vol = clamp(v / 1500, 0.04, 0.4); this.tone(clamp(420 / Math.pow(m, 0.35), 70, 600), 0.09 + Math.min(0.2, m * 0.012), 'triangle', vol, 60); this.noise(0.05, vol * 0.5, 1800, 300); }
     fanfare() { [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => { this.tone(f, 0.45, 'square', 0.07, null, i * 0.09); this.tone(f * 2, 0.3, 'triangle', 0.08, null, i * 0.09); }); }
     sand() { this.noise(0.25, 0.12, 900, 300); }
     tension(p) {
@@ -640,10 +699,12 @@
       if (!this.enabled || !ball || maxTime <= 0) return null;
       const pw = this.dragging ? this.power : this.lastPower;
       if (pw < 0.01) return null;
-      const key = ball.x + ',' + ball.y + ',' + this.angle.toFixed(5) + ',' + pw.toFixed(4) + ',' + maxTime;
+      const pk = this.opts.getPucks ? this.opts.getPucks() : null;
+      const kick = this.opts.isUlt ? !!this.opts.isUlt() : false;
+      const key = ball.x + ',' + ball.y + ',' + this.angle.toFixed(5) + ',' + pw.toFixed(4) + ',' + maxTime + ',' + (pk ? pk.ver : 0) + ',' + kick;
       if (key !== this.predKey || cm !== this.predCm) {
         const v = P.shotVelocity(this.angle, pw);
-        this.pred = P.simulate(cm, ball.x, ball.y, v.vx, v.vy, { record: true, every: 2, maxTime });
+        this.pred = P.simulate(cm, ball.x, ball.y, v.vx, v.vy, { record: true, every: 2, maxTime, pucks: pk ? pk.list : null, kick });
         this.predKey = key; this.predCm = cm;
       }
       return this.pred;
@@ -692,11 +753,21 @@
     }
   }
 
-  // ------------------------------------------------------------ Animierte Kugel
+  // ------------------------------------------------------------ Animierte Kugel (Ball + Pucks, optional Ultimate)
+  /**
+   * opts.pucks: Startzustand der Pucks, opts.ult: Ultimate-Schlag (Stoß + Zeitlupe + Steuerung),
+   * opts.local: eigener Ultimate-Schlag (Steuerung kommt von steerFn in update), sonst warten auf addInputs().
+   */
   class BallAnim {
-    constructor(cm, from, vx, vy, end, result) {
-      this.cm = cm; this.s = P.createState(from.x, from.y, vx, vy); this.end = end; this.result = result; this.acc = 0;
-      this.trail = [from.x, from.y]; this.fade = 0; this.events = []; this.zmask = this.zoneMask(); this.n = 0;
+    constructor(cm, from, vx, vy, end, result, opts) {
+      opts = opts || {};
+      this.cm = cm; this.end = end; this.result = result; this.acc = 0;
+      this.ult = !!opts.ult; this.local = !!opts.local;
+      this.inputs = []; this.sent = 0; this.ended = !this.ult; this.endSent = false;
+      this.steerSteps = this.ult ? Math.round(P.config.ultimate.steerTime / P.DT) : 0;
+      this.s = P.createState(from.x, from.y, vx, vy, opts.pucks || [], { kick: this.ult, inputs: this.ult ? this.inputs : null });
+      this.trail = [from.x, from.y]; this.fade = 0; this.events = []; this.zmask = this.zoneMask(); this.timeScale = 1;
+      if (this.ult) this.events.push({ type: 'ult', x: from.x, y: from.y });
     }
     zoneMask() {
       let m = 0;
@@ -706,28 +777,48 @@
       }
       return m;
     }
-    update(dt) {
-      if (this.s.done) { this.fade += dt; return; }
-      this.acc += Math.min(dt, 0.1);
-      while (this.acc >= P.DT && !this.s.done) {
-        P.step(this.cm, this.s); this.acc -= P.DT; this.n++;
-        if (this.n % 2 === 0) this.trail.push(this.s.x, this.s.y);
-        if (this.s.hit) this.events.push({ type: 'hit', x: this.s.x, y: this.s.y, v: this.s.hitV, hit: this.s.hit });
-        const m = this.zoneMask();
-        if (m !== this.zmask) {
-          const entered = m & ~this.zmask;
-          for (let i = 0; i < 30; i++) if (entered & (1 << i)) this.events.push({ type: 'zone', kind: this.cm.zones[i].kind, x: this.s.x, y: this.s.y });
-          this.zmask = m;
+    /** läuft gerade die gesteuerte Zeitlupen-Phase? */
+    get steering() { return this.ult && !this.s.done && this.s.n < this.steerSteps && !(this.ended && this.inputs.length / 2 <= this.s.n); }
+    get steerLeft() { return this.steering ? 1 - this.s.n / this.steerSteps : 0; }
+    addInputs(arr) { for (const v of arr) this.inputs.push(v); }
+    finish(end, result) {
+      this.end = end; this.result = result; this.ended = true;
+      if (this.s.done && end && result !== 'water') { this.s.x = end.x; this.s.y = end.y; }
+    }
+    update(dt, steerFn) {
+      if (this.s.allDone) { this.fade += dt; return; }
+      this.timeScale = this.steering ? P.config.ultimate.slowmo : 1;
+      this.acc += Math.min(dt, 0.1) * this.timeScale;
+      let guard = 0;
+      while (this.acc >= P.DT && !this.s.allDone && guard++ < 800) {
+        if (this.ult && !this.s.done && this.s.n < this.steerSteps && this.inputs.length / 2 <= this.s.n) {
+          if (this.local && steerFn) { const v = steerFn(this.s); this.inputs.push(v[0], v[1]); }
+          else if (!this.ended) { this.acc = Math.min(this.acc, P.DT); break; } // auf Live-Eingaben warten
         }
+        const wasDone = this.s.done;
+        P.step(this.cm, this.s); this.acc -= P.DT;
+        if (!wasDone) {
+          if (this.s.n % 2 === 0) this.trail.push(this.s.x, this.s.y);
+          if (this.s.hit) this.events.push({ type: 'hit', x: this.s.x, y: this.s.y, v: this.s.hitV, hit: this.s.hit });
+          const m = this.zoneMask();
+          if (m !== this.zmask) {
+            const entered = m & ~this.zmask;
+            for (let i = 0; i < 30; i++) if (entered & (1 << i)) this.events.push({ type: 'zone', kind: this.cm.zones[i].kind, x: this.s.x, y: this.s.y });
+            this.zmask = m;
+          }
+          if (this.s.done) {
+            this.events.push({ type: 'done', result: this.s.result, x: this.s.x, y: this.s.y });
+            if (this.end && this.result !== 'water') { this.s.x = this.end.x; this.s.y = this.end.y; }
+          }
+        }
+        if (this.s.pevents.length) { for (const e of this.s.pevents) this.events.push(e); this.s.pevents.length = 0; }
       }
       if (this.trail.length > 4000) this.trail.splice(0, this.trail.length - 4000);
-      if (this.s.done) {
-        this.fade = 0;
-        this.events.push({ type: 'done', result: this.s.result, x: this.s.x, y: this.s.y });
-        if (this.end && this.result !== 'water') { this.s.x = this.end.x; this.s.y = this.end.y; }
-      }
+      if (this.s.allDone) this.fade = 0;
     }
-    get done() { return this.s.done; }
+    get done() { return this.s.allDone; }
+    get ballDone() { return this.s.done; }
+    get pucks() { return this.s.pucks; }
     get pos() { return { x: this.s.x, y: this.s.y }; }
     get speed() { return Math.hypot(this.s.vx, this.s.vy); }
     inZone(kind) {
@@ -739,10 +830,17 @@
   /** Effekte zu einer laufenden Ball-Animation erzeugen */
   function animFx(a, fx, sfx, color, map, dt) {
     const objs = map.objects || [];
+    let ppSound = 0;
     for (const e of a.events) {
       if (e.type === 'hit') {
         const h = e.hit, v = e.v;
-        if (h.ball) {
+        if (h.kind === 'puck') {
+          const c = PUCK_COL[h.c] || '#fff';
+          fx.spark(e.x, e.y, c, clamp(Math.round(v / 40), 6, 30), 160 + v * 0.3, { life: 0.45 });
+          fx.ring(e.x, e.y, c, 20 + h.m * 3, 0.35, 3);
+          if (h.m > 5) fx.shake(Math.min(8, 2 + v / 300));
+          if (sfx) sfx.puck(v, h.m);
+        } else if (h.ball) {
           fx.spark(e.x, e.y, '#ffffff', 14, 350, { life: 0.35 }); fx.ring(e.x, e.y, '#fff', 26, 0.3, 2);
           if (sfx) sfx.ballHit(v);
         } else if (h.kind === 'circle' && h.src != null) {
@@ -758,6 +856,22 @@
           if (v > 700) fx.shake((v - 700) / 160);
           if (sfx) sfx.hit(v);
         }
+      } else if (e.type === 'pp') {
+        fx.spark(e.x, e.y, '#ffffff', clamp(Math.round(e.v / 60), 3, 16), 120 + e.v * 0.2, { life: 0.35 });
+        if (sfx && ppSound++ < 2) sfx.puck(e.v * 0.7, 3);
+      } else if (e.type === 'sink') {
+        fx.spark(e.x, e.y, '#5aa0ff', 30, 260, { life: 0.7, kind: 'dot', drag: 4, size: 2.2 });
+        fx.ring(e.x, e.y, PUCK_COL[e.c] || '#2f7bff', 40, 0.6, 3);
+        if (sfx) sfx.splash();
+      } else if (e.type === 'ult') {
+        const U = P.config.ultimate;
+        for (let i = 0; i < 5; i++) setTimeout(() => fx.ring(e.x, e.y, i % 2 ? '#ff2e88' : '#b45cff', 150 + i * 220, 0.9, 10 - i), i * 70);
+        fx.spark(e.x, e.y, '#ff2e88', 120, 1200, { life: 0.9, drag: 2 });
+        fx.spark(e.x, e.y, '#b45cff', 90, 900, { life: 1.1, drag: 1.5 });
+        fx.spark(e.x, e.y, '#ffffff', 60, 1500, { life: 0.5 });
+        fx.shake(18); fx.screen(0.8, '200,90,255');
+        if (sfx) sfx.ult();
+        void U;
       } else if (e.type === 'zone') {
         if (e.kind === 'boost') {
           const ang = Math.atan2(a.s.vy, a.s.vx);
@@ -782,16 +896,46 @@
     }
     a.events.length = 0;
     // fortlaufende Effekte
-    if (!a.done) {
+    if (!a.ballDone) {
       const sp = a.speed;
       if (a.inZone('sand') && sp > 30 && Math.random() < 0.6) fx.spark(a.s.x, a.s.y, NEON.sand, 1, 60, { life: 0.5, kind: 'smoke', drag: 4, size: 2 });
       if (a.inZone('boost')) fx.spark(a.s.x, a.s.y, NEON.boost, 2, 200, { angle: Math.atan2(a.s.vy, a.s.vx) + Math.PI, spread: 0.8, life: 0.35 });
       if (a.inZone('ice') && Math.random() < 0.3) fx.spark(a.s.x, a.s.y, NEON.ice, 1, 40, { life: 0.5, kind: 'dot' });
       if (sp > 900 && Math.random() < 0.7) fx.spark(a.s.x, a.s.y, color, 1, 80, { angle: Math.atan2(a.s.vy, a.s.vx) + Math.PI, spread: 0.6, life: 0.3 });
+      if (a.steering) fx.spark(a.s.x, a.s.y, Math.random() < 0.5 ? '#ff2e88' : '#b45cff', 2, 120, { life: 0.6, kind: 'dot' });
+    }
+    // schnell gleitende Pucks ziehen Funken
+    for (const q of a.pucks) if (q.alive && (q.vx * q.vx + q.vy * q.vy) > 600 * 600 && Math.random() < 0.5) fx.spark(q.x, q.y, PUCK_COL[q.c], 1, 60, { life: 0.3, kind: 'dot' });
+  }
+
+  /** Ultimate-Overlay: Zeitlupen-Vignette, Steuerlinie, Restzeit */
+  function drawUltOverlay(ctx, view, a, target, t) {
+    const c = view.canvas, w = c.width, h = c.height;
+    ctx.save(); view.screen();
+    const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.7);
+    g.addColorStop(0, 'rgba(120,40,200,0)'); g.addColorStop(1, 'rgba(120,40,200,0.38)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    const d = view.dpr;
+    ctx.font = `900 italic ${28 * d}px system-ui, sans-serif`; ctx.textAlign = 'center';
+    glow(ctx, '#ff2e88', 20); ctx.fillStyle = '#fff';
+    ctx.globalAlpha = 0.75 + 0.25 * Math.sin(t * 8);
+    ctx.fillText('ULTIMATE · SLOW-MO', w / 2, 46 * d);
+    noGlow(ctx); ctx.globalAlpha = 1;
+    const bw = 280 * d, bx = w / 2 - bw / 2, by = 58 * d;
+    ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(bx, by, bw, 6 * d);
+    ctx.fillStyle = '#ff2e88'; glow(ctx, '#ff2e88', 12); ctx.fillRect(bx, by, bw * a.steerLeft, 6 * d); noGlow(ctx);
+    ctx.restore();
+    view.world();
+    if (target) {
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = '#ff2e88'; ctx.lineWidth = 2.5; glow(ctx, '#ff2e88', 14); ctx.setLineDash([8, 6]); ctx.lineDashOffset = -t * 80;
+      ctx.beginPath(); ctx.moveTo(a.s.x, a.s.y); ctx.lineTo(target.x, target.y); ctx.stroke(); ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(target.x, target.y, 10 + Math.sin(t * 10) * 3, 0, 7); ctx.stroke();
+      ctx.restore();
     }
   }
 
   const PREVIEW_TIME = { full: 60, long: 4, medium: 1.6, short: 0.5, off: 0 };
 
-  window.Skill = { NEON, View, drawMap, drawBall, drawPrediction, drawTrail, ShotController, BallAnim, FX, SFX, animFx, PREVIEW_TIME, roundRect, powerColor };
+  window.Skill = { NEON, PUCK_COL, PUCK_NAME, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, FX, SFX, animFx, PREVIEW_TIME, roundRect, powerColor };
 })();

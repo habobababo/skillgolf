@@ -143,9 +143,9 @@ function broadcast(room, msg) { const s = JSON.stringify(msg); for (const p of r
 function publicRoom(room) {
   return {
     code: room.code, hostId: room.hostId, phase: room.phase, holeIndex: room.holeIndex,
-    playlist: room.playlist, settings: room.settings,
+    playlist: room.playlist, settings: room.settings, ultBy: room.ult ? room.ult.pid : null,
     players: room.players.map((p) => ({
-      id: p.id, name: p.name, color: p.color, avatar: p.avatar || null, scores: p.scores, shots: p.shots, done: p.done, sunk: p.sunk,
+      id: p.id, name: p.name, color: p.color, avatar: p.avatar || null, ultUsed: !!p.ultUsed, scores: p.scores, shots: p.shots, done: p.done, sunk: p.sunk,
       ball: p.ball,
     })),
   };
@@ -165,12 +165,14 @@ function startHole(room) {
   if (!map) { broadcast(room, { type: 'toast', text: `Map ${entry.name} fehlt – übersprungen` }); return nextHole(room); }
   room.map = map;
   room.cm = P.compile(map);
+  room.pucks = P.spawnPucks(room.cm, (Math.random() * 2 ** 31) | 0);
+  endUltimate(room, true);
   for (const p of room.players) {
     p.ball = { x: room.cm.start.x, y: room.cm.start.y };
-    p.shots = 0; p.done = false; p.sunk = false; p.busyUntil = 0;
+    p.shots = 0; p.done = false; p.sunk = false; p.busyUntil = 0; p.ultUsed = false;
     while (p.scores.length < room.holeIndex) p.scores.push(null);
   }
-  broadcast(room, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map, config: P.config });
+  broadcast(room, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map, config: P.config, pucks: room.pucks });
   syncRoom(room);
 }
 
@@ -206,30 +208,95 @@ function finishPlayer(room, p, sunk) {
   p.scores[room.holeIndex] = sunk ? p.shots : P.MISS_SCORE;
 }
 
+/** Ist der nächste Schlag dieses Spielers erzwungen ein Ultimate-Schlag? */
+function ultimateDue(p) {
+  const n = P.config.ultimate.afterShots;
+  return n > 0 && !p.ultUsed && p.shots === n && p.shots < P.MAX_SHOTS;
+}
+
+function othersOf(room, p) {
+  const others = [];
+  for (const q of room.players) if (q !== p && q.ball && !q.sunk) others.push(q.ball.x, q.ball.y);
+  return others;
+}
+
+/** Ergebnis eines Schlags übernehmen (normal + Ultimate) */
+function applyResult(room, p, from, r, busyMs) {
+  p.busyUntil = Date.now() + busyMs;
+  room.pucks = r.pucks;
+  if (r.result === 'water') { p.ball = from; p.shots = Math.min(P.MAX_SHOTS, p.shots + P.config.waterPenalty); } else p.ball = { x: r.x, y: r.y };
+  if (r.result === 'sunk') finishPlayer(room, p, true);
+  else if (p.shots >= P.MAX_SHOTS) finishPlayer(room, p, false);
+}
+
 function handleShot(room, p, msg) {
-  if (room.phase !== 'playing' || p.done) return;
-  if (Date.now() < p.busyUntil - 150) return; // Ball rollt noch
+  if (room.phase !== 'playing' || p.done || room.ult) return;
+  if (Date.now() < p.busyUntil - 150) return; // Ball/Pucks rollen noch
   const angle = Number(msg.angle), power = Math.max(0, Math.min(1, Number(msg.power)));
   if (!Number.isFinite(angle) || !Number.isFinite(power) || power < 0.01) return;
   const v = P.shotVelocity(angle, power);
   const from = { x: p.ball.x, y: p.ball.y };
-  // liegende Gegnerbälle sind Hindernisse (eingelochte nicht)
-  const others = [];
-  for (const q of room.players) if (q !== p && q.ball && !q.sunk) others.push(q.ball.x, q.ball.y);
+  const others = othersOf(room, p); // liegende Gegnerbälle sind Hindernisse (eingelochte nicht)
   const cmShot = P.withBalls(room.cm, others, from.x, from.y);
-  const r = P.simulate(cmShot, from.x, from.y, v.vx, v.vy);
+  const pucks0 = room.pucks;
   p.shots++;
-  p.busyUntil = Date.now() + r.time * 1000;
-  if (r.result === 'water') { p.ball = from; p.shots = Math.min(P.MAX_SHOTS, p.shots + P.config.waterPenalty); } else p.ball = { x: r.x, y: r.y };
-  if (r.result === 'sunk') finishPlayer(room, p, true);
-  else if (p.shots >= P.MAX_SHOTS) finishPlayer(room, p, false);
-  broadcast(room, { type: 'shot', id: p.id, from, others, vx: v.vx, vy: v.vy, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex] });
+
+  if (ultimateDue({ ...p, shots: p.shots - 1 })) {
+    // Ultimate: Ergebnis steht erst fest, wenn die Steuerung vorbei ist
+    p.ultUsed = true;
+    const U = P.config.ultimate;
+    room.ult = { pid: p.id, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, inputs: [], max: Math.round(U.steerTime / P.DT) * 2 };
+    room.ult.timer = setTimeout(() => finishUltimate(room), (U.steerTime / U.slowmo + 15) * 1000);
+    broadcast(room, { type: 'shot', id: p.id, ult: true, from, others, vx: v.vx, vy: v.vy, pucks0, shots: p.shots });
+    return;
+  }
+
+  const r = P.simulate(cmShot, from.x, from.y, v.vx, v.vy, { pucks: pucks0 });
+  applyResult(room, p, from, r, r.time * 1000);
+  broadcast(room, { type: 'shot', id: p.id, from, others, vx: v.vx, vy: v.vy, pucks0, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex] });
   checkHoleEnd(room);
+}
+
+/** Steuer-Eingaben des Ultimate-Schützen sammeln und live weiterreichen */
+function handleUltInput(room, p, msg) {
+  const u = room.ult;
+  if (!u || u.pid !== p.id || !Array.isArray(msg.inputs)) return;
+  const lim = P.config.ultimate.steerAccel * 1.01;
+  const chunk = [];
+  for (const v of msg.inputs.slice(0, Math.max(0, u.max - u.inputs.length))) {
+    const n = Math.round(Number(v));
+    chunk.push(Number.isFinite(n) ? Math.max(-lim, Math.min(lim, n)) : 0);
+  }
+  if (chunk.length % 2) chunk.pop();
+  u.inputs.push(...chunk);
+  const s = JSON.stringify({ type: 'ultInput', id: p.id, inputs: chunk });
+  for (const q of room.players) if (q !== p && q.ws.readyState === 1) q.ws.send(s);
+}
+
+function finishUltimate(room) {
+  const u = room.ult;
+  if (!u) return;
+  clearTimeout(u.timer);
+  room.ult = null;
+  const p = room.players.find((q) => q.id === u.pid);
+  const r = P.simulate(u.cm, u.from.x, u.from.y, u.vx, u.vy, { pucks: u.pucks0, kick: true, inputs: u.inputs });
+  if (!p) { room.pucks = r.pucks; broadcast(room, { type: 'shotEnd', id: u.pid, pucks: r.pucks, gone: true }); return; }
+  const steerT = (u.inputs.length / 2) * P.DT;
+  applyResult(room, p, u.from, r, Math.max(0, r.time - steerT) * 1000);
+  broadcast(room, { type: 'shotEnd', id: p.id, n: u.inputs.length / 2, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex] });
+  checkHoleEnd(room);
+}
+
+/** laufendes Ultimate abbrechen (Bahnwechsel) bzw. abschließen (Spieler weg) */
+function endUltimate(room, discard) {
+  if (!room.ult) return;
+  if (discard) { clearTimeout(room.ult.timer); room.ult = null; } else finishUltimate(room);
 }
 
 function leave(p) {
   const room = p.room;
   if (!room) return;
+  if (room.ult && room.ult.pid === p.id) endUltimate(room, false);
   room.players = room.players.filter((x) => x !== p);
   p.room = null;
   if (!room.players.length) { clearTimeout(room.timer); rooms.delete(room.code); return; }
@@ -251,7 +318,7 @@ function joinRoom(p, room) {
     while (p.scores.length < room.holeIndex) p.scores.push(null);
     p.ball = { x: room.cm.start.x, y: room.cm.start.y };
     if (room.phase === 'holeEnd') { p.done = true; p.scores[room.holeIndex] = null; }
-    send(p.ws, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map: room.map, config: P.config });
+    send(p.ws, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map: room.map, config: P.config, pucks: room.pucks });
   }
   broadcast(room, { type: 'toast', text: `${p.name} ist beigetreten` });
   syncRoom(room);
@@ -316,6 +383,7 @@ wss.on('connection', (ws) => {
         break;
       case 'skip':
         if (isHost && (room.phase === 'playing' || room.phase === 'holeEnd')) {
+          endUltimate(room, true);
           for (const pl of room.players) if (!pl.done) { pl.shots = P.MAX_SHOTS; finishPlayer(room, pl, false); }
           room.endPending = false;
           nextHole(room);
@@ -326,6 +394,12 @@ wss.on('connection', (ws) => {
         break;
       case 'shot':
         if (room) handleShot(room, p, msg);
+        break;
+      case 'ultInput':
+        if (room) handleUltInput(room, p, msg);
+        break;
+      case 'ultEnd':
+        if (room && room.ult && room.ult.pid === p.id) finishUltimate(room);
         break;
       case 'chat':
         if (room) broadcast(room, { type: 'chat', name: p.name, color: p.color, text: String(msg.text || '').slice(0, 200) });
