@@ -20,7 +20,10 @@
       ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
       ws.onopen = () => { send({ type: 'hello', name: myName(), avatar: myAvatar }); resolve(); };
       ws.onerror = () => reject(new Error('Keine Verbindung zum Server'));
-      ws.onclose = () => { toast('Verbindung getrennt'); room = null; show('menu'); };
+      ws.onclose = () => {
+        toast('Verbindung getrennt – verbinde neu …'); room = null; show('menu');
+        setTimeout(() => location.reload(), 2000);
+      };
       ws.onmessage = (e) => onMessage(JSON.parse(e.data));
     });
   }
@@ -31,7 +34,14 @@
 
   function onMessage(m) {
     switch (m.type) {
-      case 'welcome': myId = m.id; applyConfig(m.config); break;
+      case 'welcome': {
+        myId = m.id; applyConfig(m.config);
+        // neue Server-Version -> Seite neu laden, damit niemand mit altem Code spielt
+        const old = sessionStorage.getItem('skillshot.build');
+        sessionStorage.setItem('skillshot.build', m.build);
+        if (old && m.build && old !== m.build) location.reload();
+        break;
+      }
       case 'config': applyConfig(m.config); break;
       case 'error':
         toast(m.text);
@@ -50,7 +60,7 @@
         break;
       case 'shot': onShot(m); break;
       case 'shotEnd': onShotEnd(m); break;
-      case 'turn': onTurn(m.id); break;
+      case 'turn': onTurn(m.turn); break;
       case 'magnet': onMagnet(m.id); break;
       case 'ultInput': { const a = anims.get(m.id); if (a && a.ult && !a.local) a.addInputs(m.inputs); break; }
       case 'holeEnd': showScoreTable(false); break;
@@ -66,9 +76,15 @@
     renderHud(); renderBoard();
   }
 
-  let turnDeadline = 0;
+  // Zug-Zustand vom Server: { id, seq, phase: 'aim' | 'flight', left }
+  let turn = null, turnDeadline = 0;
+  function setTurnState(t) {
+    turn = t || null;
+    turnDeadline = turn && turn.phase === 'aim' && turn.left ? performance.now() + turn.left : 0;
+  }
+  function myTurn() { return !!turn && turn.id === myId && turn.phase === 'aim'; }
   function onRoom(r) {
-    turnDeadline = r.turnLeft ? performance.now() + r.turnLeft : 0;
+    setTurnState(r.turn);
     const prevPhase = room && room.phase;
     // laufende Animationen behalten Vorrang vor Server-Positionen
     room = r;
@@ -82,18 +98,18 @@
 
   function onShot(m) {
     const p = room && room.players.find((x) => x.id === m.id);
-    if (!p || !cm) return;
+    if (!p || !cm) { if (m.seq) send({ type: 'animDone', seq: m.seq }); return; }
     if (m.id === myId) awaiting = false;
     const mode = m.mode || (m.ult ? 'ult' : null);
     const ult = !!mode;
     const a = new S.BallAnim(P.withBalls(cm, m.others, m.from.x, m.from.y, m.magnets), m.from, m.vx, m.vy, m.end, m.result,
       { pucks: m.pucks0, mode, local: ult && m.id === myId });
-    a.player = p; a.final = ult ? null : m; a.born = performance.now();
+    a.player = p; a.final = ult ? null : m; a.born = performance.now(); a.seq = m.seq;
     anims.set(m.id, a);
     p.shots = m.shots;
-    if (room) room.inFlight = true;
+    if (turn && turn.seq === m.seq) { turn.phase = 'flight'; turnDeadline = 0; }
+    $('hudTimer').textContent = '';
     for (const q of room.players) q.magnet = false; // Magnet wirkt nur für diesen Schlag
-    turnDeadline = 0;
     if (ult) {
       ultBy = m.id;
       if (mode === 'ult') p.ultUsed = true;
@@ -106,7 +122,7 @@
     if (ultBy === m.id) ultBy = null;
     setPucks(m.pucks);
     const p = room && room.players.find((x) => x.id === m.id);
-    if (!p || m.gone) return;
+    if (!p || m.gone) { const a = anims.get(m.id); if (a) a.final = a.final || m; else if (m.seq) send({ type: 'animDone', seq: m.seq }); return; }
     p.ball = m.end; p.shots = m.shots;
     const a = anims.get(m.id);
     if (a && a.ult) { a.finish(m.end, m.result); a.final = m; }
@@ -150,9 +166,10 @@
   }
 
   /** Zugwechsel */
-  function onTurn(id) {
-    if (!room) return;
-    room.turnId = id; room.inFlight = false;
+  function onTurn(t) {
+    if (!room || !t) return;
+    setTurnState(t);
+    const id = t.id;
     for (const q of room.players) q.magnet = false;
     const p = room.players.find((x) => x.id === id);
     if (id === myId) {
@@ -170,7 +187,7 @@
     p.magnet = true; p.magnetLeft = Math.max(0, (p.magnetLeft || 0) - 1);
     if (p.ball) { fx.ring(p.ball.x, p.ball.y, '#ffe03a', P.config.magnet.radius, 0.8, 4); fx.ring(p.ball.x, p.ball.y, '#00eaff', P.config.magnet.radius * 0.6, 0.6, 3); }
     sfx.magnet();
-    if (room.turnId === myId) toast(`🧲 ${p.name} hat MAGNETISIERT!`, true);
+    if (turn && turn.id === myId) toast(`🧲 ${p.name} hat MAGNETISIERT!`, true);
     else toast(`🧲 ${p.name} magnetisiert`);
     renderHud(); renderBoard();
   }
@@ -368,8 +385,11 @@
     const un = P.config.ultimate.afterShots;
     const sl = P.config.sling;
     $('shotDots').innerHTML = Array.from({ length: P.MAX_SHOTS }, (_, i) => `<i class="${i < used ? 'used' : ''}${un > 0 && i === un ? ' ult' : ''}${sl.steerTime > 0 && sl.shots.includes(i + 1) ? ' sling' : ''}" title="Schlag ${i + 1}"></i>`).join('');
-    const tp = room.players.find((x) => x.id === room.turnId);
-    $('hudTurn').innerHTML = room.phase !== 'playing' ? '' : !tp ? '' : tp.id === myId ? '<b class="you">DU BIST DRAN</b>' : `Am Zug: <b style="color:${tp.color}">${esc(tp.name)}</b>`;
+    const tp = turn && room.players.find((x) => x.id === turn.id);
+    const flying = turn && turn.phase === 'flight';
+    $('hudTurn').innerHTML = room.phase !== 'playing' || !tp ? ''
+      : tp.id === myId ? (flying ? 'Dein Ball rollt …' : '<b class="you">DU BIST DRAN</b>')
+      : `Am Zug: <b style="color:${tp.color}">${esc(tp.name)}</b>${flying ? ' · rollt …' : ''}`;
     updateMagnetBtn();
     const nm = nextMode(p);
     $('ultBadge').classList.toggle('hidden', !nm);
@@ -379,14 +399,14 @@
 
   function updateMagnetBtn() {
     const p = me(), b = $('btnMagnet');
-    const show = room && room.phase === 'playing' && p && p.ball && !p.sunk && room.turnId != null && room.turnId !== myId && P.config.magnet.usesPerHole > 0;
+    const show = room && room.phase === 'playing' && p && p.ball && !p.sunk && turn && turn.id !== myId && P.config.magnet.usesPerHole > 0;
     b.classList.toggle('hidden', !show);
     if (!show) return;
     const left = p.magnetLeft || 0;
-    const tp = room.players.find((x) => x.id === room.turnId);
+    const tp = room.players.find((x) => x.id === turn.id);
     const close = tp && tp.ball && Math.hypot(tp.ball.x - p.ball.x, tp.ball.y - p.ball.y) < P.BALL_R * 2 + 0.5;
     b.classList.toggle('active', !!p.magnet);
-    b.disabled = !!p.magnet || left <= 0 || !!room.inFlight || close;
+    b.disabled = !!p.magnet || left <= 0 || turn.phase !== 'aim' || close;
     b.innerHTML = p.magnet ? '🧲 MAGNET AKTIV' : close ? '🧲 MAGNETISIEREN <small>zu nah</small>' : `🧲 MAGNETISIEREN <small>${left}×</small>`;
   }
   $('btnMagnet').onclick = () => { send({ type: 'magnet' }); $('btnMagnet').blur(); };
@@ -408,11 +428,11 @@
       if (room.phase === 'lobby') st = '';
       else if (p.done && !rolling) st = p.sunk ? `⛳ eingelocht mit <b>${p.shots}</b>` : `✖ <b>${P.MISS_SCORE}</b> Punkte`;
       else st = rolling ? 'rollt …' : `Schlag <b>${p.shots + 1}</b> / ${P.MAX_SHOTS}`;
-      const turn = room.phase === 'playing' && room.turnId === p.id;
-      if (turn && !(p.done && !rolling)) st = (rolling ? 'rollt …' : '▶ <b>am Zug</b>') + ` · Schlag ${p.shots + (rolling ? 0 : 1)}/${P.MAX_SHOTS}`;
+      const isTurn = room.phase === 'playing' && !!turn && turn.id === p.id;
+      if (isTurn && !(p.done && !rolling)) st = (rolling ? 'rollt …' : '▶ <b>am Zug</b>') + ` · Schlag ${p.shots + (rolling ? 0 : 1)}/${P.MAX_SHOTS}`;
       if (p.magnet) st += ' · <b style="color:#ffe03a">🧲 Magnet</b>';
       else if (room.phase === 'playing' && !p.done && P.config.magnet.usesPerHole > 0) st += ` · 🧲${p.magnetLeft || 0}`;
-      h += `<div class="bp ${p.id === myId ? 'me' : ''} ${turn ? 'turn' : ''}"><div class="top">${avatarHtml(p)}<span class="nm">${esc(p.name)}</span>${p.id === room.hostId ? '👑' : ''}<span class="tot">${total(p)}</span></div><div class="st">${st}</div></div>`;
+      h += `<div class="bp ${p.id === myId ? 'me' : ''} ${isTurn ? 'turn' : ''}"><div class="top">${avatarHtml(p)}<span class="nm">${esc(p.name)}</span>${p.id === room.hostId ? '👑' : ''}<span class="tot">${total(p)}</span></div><div class="st">${st}</div></div>`;
     }
     b.innerHTML = h + (room.phase === 'lobby' ? '' : legend);
   }
@@ -461,13 +481,16 @@
     canShoot: () => {
       const p = me();
       if (!room || room.phase !== 'playing' || !p || p.done || awaiting || !cm || ultBy) return false;
-      if (room.turnId !== myId || room.inFlight) return false;
-      const a = anims.get(myId);
-      return !(a && !a.done);
+      if (!myTurn()) return false;
+      for (const [, a] of anims) if (!a.done) return false;
+      return true;
     },
     getPucks: () => ({ list: pucks, ver: pucksVer }),
     shotMode: () => nextMode(me()),
-    onShoot: (angle, power) => { awaiting = true; send({ type: 'shot', angle, power }); setTimeout(() => { awaiting = false; }, 3000); },
+    onShoot: (angle, power) => {
+      awaiting = true; send({ type: 'shot', angle, power });
+      setTimeout(() => { awaiting = false; }, 3000);
+    },
   });
 
   $('btnMute').textContent = sfx.muted ? '🔇' : '🔊';
@@ -542,6 +565,7 @@
           if (!a.endSent && (a.ballDone || a.s.n >= a.steerSteps)) { a.endSent = true; send({ type: 'ultEnd' }); }
         }
         if (a.ballDone && a.final && !a.fired) { a.fired = true; resolveShot(a.player, a.final, a); }
+        if (a.done && a.final && a.seq && !a.acked) { a.acked = true; send({ type: 'animDone', seq: a.seq }); }
         if (a.done && a.fired && a.fade > SPAWN_FADE) anims.delete(id);
       }
       // Effekte laufen in der Zeitlupe mit

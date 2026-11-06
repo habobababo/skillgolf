@@ -149,7 +149,7 @@ function publicRoom(room) {
   return {
     code: room.code, hostId: room.hostId, phase: room.phase, holeIndex: room.holeIndex,
     playlist: room.playlist, settings: room.settings, ultBy: room.ult ? room.ult.pid : null,
-    turnId: room.turnId ?? null, turnLeft: room.turnDeadline ? Math.max(0, room.turnDeadline - Date.now()) : 0, inFlight: !!room.inFlight,
+    turn: publicTurn(room),
     players: room.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, avatar: p.avatar || null, ultUsed: !!p.ultUsed, scores: p.scores, shots: p.shots, done: p.done, sunk: p.sunk,
       magnet: !!p.magnet, magnetLeft: p.magnetLeft ?? 0,
@@ -182,51 +182,105 @@ function startHole(room) {
   }
   broadcast(room, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map, config: P.config, pucks: room.pucks });
   // reihum: jede Bahn beginnt ein anderer Spieler
-  room.turnId = null;
-  setTurn(room, room.players[room.holeIndex % room.players.length].id);
+  clearTurn(room);
+  beginTurn(room, room.players[room.holeIndex % room.players.length].id);
 }
 
 // ---------------------------------------------------------------- Züge (reihum)
-function setTurn(room, id) {
-  clearTimeout(room.turnTimer);
-  room.turnId = id; room.inFlight = false;
-  for (const q of room.players) q.magnet = false;
-  const T = P.config.turn.timeLimit;
-  room.turnDeadline = T && id != null ? Date.now() + T * 1000 : 0;
-  if (room.turnDeadline) {
-    room.turnTimer = setTimeout(() => {
-      if (room.turnId !== id || room.inFlight || room.phase !== 'playing') return;
-      const q = room.players.find((x) => x.id === id);
-      broadcast(room, { type: 'toast', text: `⏱ ${q ? q.name : 'Spieler'}: Zeit abgelaufen` });
-      advanceTurn(room);
-    }, T * 1000);
-  }
-  syncRoom(room);
-  if (id != null) broadcast(room, { type: 'turn', id });
+/*
+ * Zustand room.turn = { id, seq, phase, ... }
+ *   'aim'    – Spieler id darf schlagen (Zeitlimit läuft), andere dürfen magnetisieren
+ *   'flight' – Schlag läuft; Ende erst, wenn das Ergebnis feststeht (resolved) UND alle
+ *              Browser „Animation fertig“ gemeldet haben (oder ein Sicherheits-Timeout greift)
+ */
+const ACK_SLACK = 4000;      // ms Puffer für Netz/Animation nach der berechneten Rollzeit
+let BUILD = String(Date.now());
+
+function publicTurn(room) {
+  const t = room.turn;
+  if (!t) return null;
+  return { id: t.id, seq: t.seq, phase: t.phase, left: t.deadline ? Math.max(0, t.deadline - Date.now()) : 0 };
 }
-/** nächster Spieler, der noch nicht fertig ist (der aktuelle, wenn er als einziger übrig ist) */
-function advanceTurn(room) {
+function clearTurn(room) {
+  if (room.turn) { clearTimeout(room.turn.timer); clearTimeout(room.turn.force); }
+  room.turn = null;
+}
+function beginTurn(room, id) {
+  clearTurn(room);
+  room.turnSeq = (room.turnSeq || 0) + 1;
+  const T = P.config.turn.timeLimit;
+  const t = room.turn = { id, seq: room.turnSeq, phase: 'aim', deadline: T ? Date.now() + T * 1000 : 0, idx: room.players.findIndex((q) => q.id === id) };
+  for (const q of room.players) q.magnet = false;
+  if (T) t.timer = setTimeout(() => {
+    if (room.turn !== t || t.phase !== 'aim') return;
+    const q = room.players.find((x) => x.id === id);
+    broadcast(room, { type: 'toast', text: `⏱ ${q ? q.name : 'Spieler'}: Zeit abgelaufen` });
+    endTurn(room);
+  }, T * 1000);
+  syncRoom(room);
+  broadcast(room, { type: 'turn', turn: publicTurn(room) });
+}
+/** Schlag hat begonnen */
+function turnFlight(room) {
+  const t = room.turn;
+  clearTimeout(t.timer);
+  t.phase = 'flight'; t.deadline = 0; t.resolved = false;
+  t.expect = new Set(room.players.filter((q) => q.ws.readyState === 1).map((q) => q.id));
+  t.acks = new Set();
+}
+/** Ergebnis steht fest; restMs = wie lange Ball/Pucks danach noch rollen */
+function turnResolved(room, restMs, extra) {
+  const t = room.turn;
+  if (!t || t.phase !== 'flight') return;
+  t.resolved = true;
+  clearTimeout(t.force);
+  t.force = setTimeout(() => { if (room.turn === t) endTurn(room); }, restMs + ACK_SLACK + (extra || 0));
+  tryEndTurn(room);
+}
+function tryEndTurn(room) {
+  const t = room.turn;
+  if (!t || t.phase !== 'flight' || !t.resolved || t.ending) return;
+  for (const id of t.expect) {
+    const q = room.players.find((x) => x.id === id);
+    if (q && q.ws.readyState === 1 && !t.acks.has(id)) return;
+  }
+  t.ending = true;
+  setTimeout(() => { if (room.turn === t) endTurn(room); }, 250);
+}
+/** nächster Spieler (der noch nicht fertig ist) – oder Bahnende */
+function endTurn(room) {
+  const t = room.turn;
+  clearTurn(room);
   if (room.phase !== 'playing') return;
   const n = room.players.length;
-  if (!n || room.players.every((q) => q.done)) { clearTimeout(room.turnTimer); room.turnId = null; room.inFlight = false; room.turnDeadline = 0; syncRoom(room); checkHoleEnd(room); return; }
-  const i = room.players.findIndex((q) => q.id === room.turnId);
+  if (!n || room.players.every((q) => q.done)) { syncRoom(room); return holeEnd(room); }
+  let i = t ? room.players.findIndex((q) => q.id === t.id) : -1;
+  if (i < 0 && t) i = t.idx - 1;          // Spieler am Zug ist gegangen
   for (let k = 1; k <= n; k++) {
     const q = room.players[(((i + k) % n) + n) % n];
-    if (!q.done) return setTurn(room, q.id);
+    if (!q.done) return beginTurn(room, q.id);
   }
 }
-/** Zug endet, sobald Ball und Pucks liegen */
-function scheduleNextTurn(room, ms) {
-  clearTimeout(room.turnTimer);
-  room.inFlight = true; room.turnDeadline = 0;
-  room.turnTimer = setTimeout(() => advanceTurn(room), Math.max(0, ms) + 500);
+function holeEnd(room) {
+  if (room.phase !== 'playing' || room.endPending) return;
+  room.endPending = true;
+  room.timer = setTimeout(() => {
+    room.endPending = false;
+    if (room.phase !== 'playing') return;
+    room.phase = 'holeEnd';
+    syncRoom(room);
+    broadcast(room, { type: 'holeEnd', index: room.holeIndex });
+    room.timer = setTimeout(() => nextHole(room), P.config.holeEndDelay * 1000);
+  }, 600);
 }
+
 /** wartender Spieler magnetisiert seinen Ball für den nächsten Schlag des Gegners */
 function handleMagnet(room, p) {
-  if (room.phase !== 'playing' || room.turnId == null || room.turnId === p.id) return send(p.ws, { type: 'error', text: 'Magnet nur, wenn ein anderer dran ist' });
-  if (room.inFlight) return send(p.ws, { type: 'error', text: 'Zu spät – der Ball ist schon unterwegs' });
+  const t = room.turn;
+  if (room.phase !== 'playing' || !t || t.id === p.id) return send(p.ws, { type: 'error', text: 'Magnet nur, wenn ein anderer dran ist' });
+  if (t.phase !== 'aim') return send(p.ws, { type: 'error', text: 'Zu spät – der Ball ist schon unterwegs' });
   if (!p.ball || p.sunk || p.magnet || (p.magnetLeft || 0) <= 0) return;
-  const tp = room.players.find((q) => q.id === room.turnId);
+  const tp = room.players.find((q) => q.id === t.id);
   if (tp && tp.ball && Math.hypot(tp.ball.x - p.ball.x, tp.ball.y - p.ball.y) < P.BALL_R * 2 + 0.5) return send(p.ws, { type: 'error', text: 'Zu nah am Ball des Gegners' });
   p.magnet = true; p.magnetLeft--;
   broadcast(room, { type: 'magnet', id: p.id });
@@ -234,7 +288,7 @@ function handleMagnet(room, p) {
 }
 
 function nextHole(room) {
-  clearTimeout(room.timer); clearTimeout(room.turnTimer); room.turnId = null; room.inFlight = false; room.turnDeadline = 0;
+  clearTimeout(room.timer); clearTurn(room); room.endPending = false;
   room.holeIndex++;
   if (room.holeIndex >= room.playlist.length) {
     room.phase = 'finished';
@@ -243,21 +297,6 @@ function nextHole(room) {
     return;
   }
   startHole(room);
-}
-
-function checkHoleEnd(room) {
-  if (room.phase !== 'playing' || room.endPending) return;
-  if (!room.players.length || !room.players.every((p) => p.done)) return;
-  room.endPending = true;
-  const wait = Math.max(0, ...room.players.map((p) => p.busyUntil - Date.now())) + 600;
-  room.timer = setTimeout(() => {
-    room.endPending = false;
-    if (room.phase !== 'playing') return;
-    room.phase = 'holeEnd';
-    syncRoom(room);
-    broadcast(room, { type: 'holeEnd', index: room.holeIndex });
-    room.timer = setTimeout(() => nextHole(room), P.config.holeEndDelay * 1000);
-  }, wait);
 }
 
 function finishPlayer(room, p, sunk) {
@@ -285,8 +324,8 @@ function applyResult(room, p, from, r, busyMs) {
 
 function handleShot(room, p, msg) {
   if (room.phase !== 'playing' || p.done || room.ult) return;
-  if (room.turnId !== p.id || room.inFlight) return send(p.ws, { type: 'error', text: 'Du bist nicht dran' });
-  if (Date.now() < p.busyUntil - 150) return; // Ball/Pucks rollen noch
+  const t = room.turn;
+  if (!t || t.id !== p.id || t.phase !== 'aim') return send(p.ws, { type: 'error', text: 'Du bist nicht dran' });
   const angle = Number(msg.angle), power = Math.max(0, Math.min(1, Number(msg.power)));
   if (!Number.isFinite(angle) || !Number.isFinite(power) || power < 0.01) return;
   const mode = nextMode(p);
@@ -298,7 +337,8 @@ function handleShot(room, p, msg) {
   const cmShot = P.withBalls(room.cm, others, from.x, from.y, magnets);
   const pucks0 = room.pucks;
   p.shots++;
-  room.inFlight = true; clearTimeout(room.turnTimer); room.turnDeadline = 0;
+  turnFlight(room);
+  const seq = t.seq;
 
   if (mode) {
     // gesteuerter Schlag (Ultimate/Sling): Ergebnis steht erst fest, wenn die Steuerung vorbei ist
@@ -306,14 +346,14 @@ function handleShot(room, p, msg) {
     const U = P.modeCfg(mode);
     room.ult = { pid: p.id, mode, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, inputs: [], max: Math.round(U.steerTime / P.DT) * 2, accel: U.steerAccel };
     room.ult.timer = setTimeout(() => finishUltimate(room), (U.steerTime / U.slowmo + 15) * 1000);
-    broadcast(room, { type: 'shot', id: p.id, mode, ult: mode === 'ult', from, others, magnets, vx: v.vx, vy: v.vy, pucks0, shots: p.shots });
+    broadcast(room, { type: 'shot', seq, id: p.id, mode, ult: mode === 'ult', from, others, magnets, vx: v.vx, vy: v.vy, pucks0, shots: p.shots });
     return;
   }
 
   const r = P.simulate(cmShot, from.x, from.y, v.vx, v.vy, { pucks: pucks0 });
   applyResult(room, p, from, r, r.time * 1000);
-  broadcast(room, { type: 'shot', id: p.id, from, others, magnets, vx: v.vx, vy: v.vy, pucks0, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex] });
-  scheduleNextTurn(room, r.time * 1000);
+  broadcast(room, { type: 'shot', seq, id: p.id, from, others, magnets, vx: v.vx, vy: v.vy, pucks0, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex] });
+  turnResolved(room, r.time * 1000);
 }
 
 /** Steuer-Eingaben des Ultimate-Schützen sammeln und live weiterreichen */
@@ -339,12 +379,14 @@ function finishUltimate(room) {
   room.ult = null;
   const p = room.players.find((q) => q.id === u.pid);
   const r = P.simulate(u.cm, u.from.x, u.from.y, u.vx, u.vy, { pucks: u.pucks0, kick: u.mode === 'ult', inputs: u.inputs });
-  if (!p) { room.pucks = r.pucks; broadcast(room, { type: 'shotEnd', id: u.pid, pucks: r.pucks, gone: true }); scheduleNextTurn(room, 0); return; }
+  const seq = room.turn ? room.turn.seq : 0;
+  if (!p) { room.pucks = r.pucks; broadcast(room, { type: 'shotEnd', seq, id: u.pid, pucks: r.pucks, gone: true }); turnResolved(room, 0); return; }
   const steerT = (u.inputs.length / 2) * P.DT;
   const rest = Math.max(0, r.time - steerT) * 1000;
   applyResult(room, p, u.from, r, rest);
-  broadcast(room, { type: 'shotEnd', id: p.id, n: u.inputs.length / 2, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex] });
-  scheduleNextTurn(room, rest);
+  broadcast(room, { type: 'shotEnd', seq, id: p.id, n: u.inputs.length / 2, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex] });
+  // Zuschauer hängen beim Steuern etwas hinterher (Puffer + Zeitlupe) -> großzügiger Timeout
+  turnResolved(room, rest, (P.modeCfg(u.mode).steerTime / P.modeCfg(u.mode).slowmo) * 1000 * 0.5);
 }
 
 /** laufendes Ultimate abbrechen (Bahnwechsel) bzw. abschließen (Spieler weg) */
@@ -357,19 +399,19 @@ function leave(p) {
   const room = p.room;
   if (!room) return;
   if (room.ult && room.ult.pid === p.id) endUltimate(room, false);
-  const wasTurn = room.turnId === p.id && !room.inFlight;
-  const idx = room.players.indexOf(p);
+  const t = room.turn;
+  const wasAiming = t && t.id === p.id && t.phase === 'aim';
   room.players = room.players.filter((x) => x !== p);
   p.room = null;
-  if (!room.players.length) { clearTimeout(room.timer); clearTimeout(room.turnTimer); rooms.delete(room.code); return; }
+  if (!room.players.length) { clearTimeout(room.timer); clearTurn(room); rooms.delete(room.code); return; }
   if (room.hostId === p.id) room.hostId = room.players[0].id;
   broadcast(room, { type: 'toast', text: `${p.name} hat den Raum verlassen` });
-  if (wasTurn && room.phase === 'playing') {
-    // Zug an den nächsten in der Reihe geben
-    room.turnId = room.players[(idx - 1 + room.players.length) % room.players.length].id;
-    advanceTurn(room);
-  } else syncRoom(room);
-  checkHoleEnd(room);
+  if (room.phase === 'playing') {
+    if (wasAiming) return endTurn(room);              // Zug an den Nächsten
+    if (t && t.phase === 'flight') { t.expect.delete(p.id); tryEndTurn(room); }
+    if (!room.turn && room.players.every((q) => q.done)) holeEnd(room);
+  }
+  syncRoom(room);
 }
 
 function joinRoom(p, room) {
@@ -388,14 +430,14 @@ function joinRoom(p, room) {
     send(p.ws, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map: room.map, config: P.config, pucks: room.pucks });
   }
   broadcast(room, { type: 'toast', text: `${p.name} ist beigetreten` });
-  if (room.phase === 'playing' && room.turnId == null && !room.inFlight) setTurn(room, p.id);
+  if (room.phase === 'playing' && !room.turn && !room.endPending) beginTurn(room, p.id);
   else syncRoom(room);
 }
 
 const wss = new WebSocketServer({ server, maxPayload: 96 * 1024 });
 wss.on('connection', (ws) => {
   const p = { id: nextId++, ws, name: 'Spieler', room: null, scores: [] };
-  send(ws, { type: 'welcome', id: p.id, config: P.config });
+  send(ws, { type: 'welcome', id: p.id, config: P.config, build: BUILD });
 
   ws.on('message', (data) => {
     let msg;
@@ -468,6 +510,10 @@ wss.on('connection', (ws) => {
         break;
       case 'magnet':
         if (room) handleMagnet(room, p);
+        break;
+      case 'animDone':
+        // Browser meldet: Animation des Schlags seq ist fertig
+        if (room && room.turn && room.turn.phase === 'flight' && msg.seq === room.turn.seq) { room.turn.acks.add(p.id); tryEndTurn(room); }
         break;
       case 'ultEnd':
         if (room && room.ult && room.ult.pid === p.id) finishUltimate(room);
