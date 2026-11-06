@@ -13,6 +13,23 @@ const BUILTIN = path.join(ROOT, 'maps', 'builtin');
 const CUSTOM = path.join(ROOT, 'maps', 'custom');
 fs.mkdirSync(CUSTOM, { recursive: true });
 
+// ---------------------------------------------------------------- Konfiguration (config.json, live neu geladen)
+const CONFIG_FILE = path.join(ROOT, 'config.json');
+function loadConfig(initial) {
+  let raw = {};
+  try { if (fs.existsSync(CONFIG_FILE)) raw = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); }
+  catch (e) { console.warn('config.json fehlerhaft, behalte alte Werte:', e.message); return false; }
+  P.configure(raw);
+  console.log(initial ? 'Konfiguration geladen' : 'Konfiguration neu geladen', fs.existsSync(CONFIG_FILE) ? '(config.json)' : '(Standardwerte)');
+  return true;
+}
+loadConfig(true);
+fs.watchFile(CONFIG_FILE, { interval: 1000 }, () => {
+  if (!loadConfig(false)) return;
+  for (const room of rooms.values()) if (room.map) room.cm = P.compile(room.map);
+  for (const room of rooms.values()) { broadcast(room, { type: 'config', config: P.config }); broadcast(room, { type: 'toast', text: 'Spielwerte wurden geändert' }); }
+});
+
 // ---------------------------------------------------------------- Maps
 function slug(s) {
   return String(s).toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
@@ -58,6 +75,7 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   const p = decodeURIComponent(url.pathname);
 
+  if (p === '/api/config') return sendJson(res, 200, P.config);
   if (p === '/api/maps' && req.method === 'GET') return sendJson(res, 200, listMaps());
   if (p.startsWith('/api/maps/') && req.method === 'GET') {
     try {
@@ -152,7 +170,7 @@ function startHole(room) {
     p.shots = 0; p.done = false; p.sunk = false; p.busyUntil = 0;
     while (p.scores.length < room.holeIndex) p.scores.push(null);
   }
-  broadcast(room, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map });
+  broadcast(room, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map, config: P.config });
   syncRoom(room);
 }
 
@@ -179,13 +197,13 @@ function checkHoleEnd(room) {
     room.phase = 'holeEnd';
     syncRoom(room);
     broadcast(room, { type: 'holeEnd', index: room.holeIndex });
-    room.timer = setTimeout(() => nextHole(room), 5500);
+    room.timer = setTimeout(() => nextHole(room), P.config.holeEndDelay * 1000);
   }, wait);
 }
 
 function finishPlayer(room, p, sunk) {
   p.done = true; p.sunk = sunk;
-  p.scores[room.holeIndex] = sunk ? p.shots : P.MAX_SHOTS + 1;
+  p.scores[room.holeIndex] = sunk ? p.shots : P.MISS_SCORE;
 }
 
 function handleShot(room, p, msg) {
@@ -202,7 +220,7 @@ function handleShot(room, p, msg) {
   const r = P.simulate(cmShot, from.x, from.y, v.vx, v.vy);
   p.shots++;
   p.busyUntil = Date.now() + r.time * 1000;
-  if (r.result === 'water') p.ball = from; else p.ball = { x: r.x, y: r.y };
+  if (r.result === 'water') { p.ball = from; p.shots = Math.min(P.MAX_SHOTS, p.shots + P.config.waterPenalty); } else p.ball = { x: r.x, y: r.y };
   if (r.result === 'sunk') finishPlayer(room, p, true);
   else if (p.shots >= P.MAX_SHOTS) finishPlayer(room, p, false);
   broadcast(room, { type: 'shot', id: p.id, from, others, vx: v.vx, vy: v.vy, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex] });
@@ -222,7 +240,7 @@ function leave(p) {
 }
 
 function joinRoom(p, room) {
-  if (room.players.length >= 8) return send(p.ws, { type: 'error', text: 'Raum ist voll (max. 8)' });
+  if (room.players.length >= P.config.maxPlayers) return send(p.ws, { type: 'error', text: `Raum ist voll (max. ${P.config.maxPlayers})` });
   leave(p);
   p.room = room;
   p.color = freeColor(room);
@@ -233,7 +251,7 @@ function joinRoom(p, room) {
     while (p.scores.length < room.holeIndex) p.scores.push(null);
     p.ball = { x: room.cm.start.x, y: room.cm.start.y };
     if (room.phase === 'holeEnd') { p.done = true; p.scores[room.holeIndex] = null; }
-    send(p.ws, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map: room.map });
+    send(p.ws, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map: room.map, config: P.config });
   }
   broadcast(room, { type: 'toast', text: `${p.name} ist beigetreten` });
   syncRoom(room);
@@ -242,7 +260,7 @@ function joinRoom(p, room) {
 const wss = new WebSocketServer({ server, maxPayload: 96 * 1024 });
 wss.on('connection', (ws) => {
   const p = { id: nextId++, ws, name: 'Spieler', room: null, scores: [] };
-  send(ws, { type: 'welcome', id: p.id });
+  send(ws, { type: 'welcome', id: p.id, config: P.config });
 
   ws.on('message', (data) => {
     let msg;

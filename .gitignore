@@ -4,3 +4,4 @@ maps/custom/*.json
 # Profilbilder (echte Fotos) nicht veröffentlichen
 public/avatars/*
 !public/avatars/.gitkeep
+config.json

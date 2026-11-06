@@ -8,29 +8,89 @@
   if (typeof module === 'object' && module.exports) module.exports = P;
   else root.SkillPhysics = P;
 })(typeof self !== 'undefined' ? self : this, function () {
-  const BALL_R = 8;
-  const HOLE_R = 14;
   const DT = 1 / 120;
-  const MAX_SPEED = 3400;      // Abschussgeschwindigkeit bei 100 %
-  const SPEED_CAP = 5000;      // absolute Obergrenze
-  const MAX_SHOTS = 7;
-  const CAPTURE_SPEED = 560;   // langsamer als das -> fällt ins Loch
   const STOP_SPEED = 5;
-  const MAX_TIME = 40;         // Sekunden pro Schlag
 
-  const SURF = {
-    grass: { decel: 220, drag: 0.32 },
-    sand: { decel: 1250, drag: 2.6 },
-    ice: { decel: 40, drag: 0.04 },
+  /**
+   * Einstellbare Spielwerte. Der Server liest sie aus config.json (siehe config.example.json)
+   * und schickt sie an alle Clients -> Vorschau, Animation und Server rechnen identisch.
+   */
+  const DEFAULT_CONFIG = {
+    maxSpeed: 3400,        // Abschussgeschwindigkeit bei 100 % Kraft (px/s)
+    speedCap: 5000,        // absolute Höchstgeschwindigkeit, z. B. nach Boosts (px/s)
+    dragDistance: 320,     // Ziehweg in Bildschirm-Pixeln für 100 % Kraft
+    maxShots: 7,           // Schläge pro Bahn
+    missPenalty: 1,        // Zusatzpunkte, wenn nicht eingelocht (Punkte = maxShots + missPenalty)
+    waterPenalty: 0,       // Strafschläge bei Wasser
+    ballRadius: 8,
+    holeRadius: 14,
+    captureSpeed: 560,     // langsamer als das -> Ball fällt ins Loch
+    holePull: 2600,        // Sog des Lochs (px/s²)
+    maxShotTime: 40,       // Sekunden, nach denen ein Schlag hart beendet wird
+    surfaces: {            // decel = konstante Bremsung (px/s²), drag = geschwindigkeitsabhängige Bremsung
+      grass: { decel: 220, drag: 0.32 },
+      sand: { decel: 1250, drag: 2.6 },
+      ice: { decel: 40, drag: 0.04 },
+    },
+    bounce: {              // Rückprall-Faktor (1 = verlustfrei)
+      wall: 0.78, block: 0.72, border: 0.75, bumper: 1.05, bumperKick: 260, ball: 0.55,
+    },
+    slopeFactor: 1,        // Multiplikator für alle Hänge
+    boostFactor: 1,        // Multiplikator für alle Boosts
+    preview: {             // Flugbahn-Vorschau (nur Darstellung)
+      width: 4,            // Linienstärke am Ball
+      minWidth: 1.2,       // Mindestdicke am Ende
+      fade: 0.8,           // 0 = gar nicht verblassen, 1 = am Ende unsichtbar
+      fadeLength: 1500,    // nach so vielen px Weg ist die Linie maximal dünn/verblasst
+    },
+    holeEndDelay: 5.5,     // Sekunden Punktetabelle zwischen den Bahnen
+    maxPlayers: 8,
   };
 
+  // Standardwerte für neue Objekte im Editor
   const DEFAULTS = {
-    wall: { t: 14, e: 0.78 },
-    block: { e: 0.72 },
-    bumper: { r: 24, e: 1.05, kick: 260 },
+    wall: { t: 14 },
+    bumper: { r: 24 },
     slope: { angle: 0, strength: 320 },
     boost: { angle: 0, strength: 2400 },
   };
+
+  let K = clone(DEFAULT_CONFIG);
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+  /** tief zusammenführen; nur Zahlen mit bekanntem Schlüssel werden übernommen */
+  function mergeNum(base, over) {
+    const out = clone(base);
+    if (!over || typeof over !== 'object') return out;
+    for (const k of Object.keys(base)) {
+      if (!(k in over)) continue;
+      if (typeof base[k] === 'object') out[k] = mergeNum(base[k], over[k]);
+      else { const v = Number(over[k]); if (Number.isFinite(v)) out[k] = v; }
+    }
+    return out;
+  }
+
+  function configure(cfg) {
+    const c = mergeNum(DEFAULT_CONFIG, cfg);
+    const lim = (v, a, b) => Math.max(a, Math.min(b, v));
+    c.maxSpeed = lim(c.maxSpeed, 50, 20000);
+    c.speedCap = lim(Math.max(c.speedCap, c.maxSpeed), 50, 30000);
+    c.dragDistance = lim(c.dragDistance, 30, 2000);
+    c.maxShots = Math.round(lim(c.maxShots, 1, 50));
+    c.missPenalty = Math.round(lim(c.missPenalty, 0, 50));
+    c.waterPenalty = Math.round(lim(c.waterPenalty, 0, 10));
+    c.ballRadius = lim(c.ballRadius, 2, 40);
+    c.holeRadius = lim(c.holeRadius, c.ballRadius + 1, 80);
+    c.maxShotTime = lim(c.maxShotTime, 2, 120);
+    c.holeEndDelay = lim(c.holeEndDelay, 0, 60);
+    c.maxPlayers = Math.round(lim(c.maxPlayers, 1, 32));
+    c.preview.width = lim(c.preview.width, 0.5, 20);
+    c.preview.minWidth = lim(c.preview.minWidth, 0.3, c.preview.width);
+    c.preview.fade = lim(c.preview.fade, 0, 1);
+    c.preview.fadeLength = lim(c.preview.fadeLength, 50, 100000);
+    K = c;
+    return K;
+  }
 
   function num(v, d) { v = Number(v); return Number.isFinite(v) ? v : d; }
   function deg2vec(deg) { const a = (deg * Math.PI) / 180; return [Math.cos(a), Math.sin(a)]; }
@@ -48,10 +108,11 @@
     const zones = [];
     // unsichtbare Außenbande
     const B = 200;
-    solids.push({ kind: 'rect', x1: -B, y1: -B, x2: W + B, y2: 0, e: 0.75 });
-    solids.push({ kind: 'rect', x1: -B, y1: H, x2: W + B, y2: H + B, e: 0.75 });
-    solids.push({ kind: 'rect', x1: -B, y1: 0, x2: 0, y2: H, e: 0.75 });
-    solids.push({ kind: 'rect', x1: W, y1: 0, x2: W + B, y2: H, e: 0.75 });
+    const eb = K.bounce.border;
+    solids.push({ kind: 'rect', x1: -B, y1: -B, x2: W + B, y2: 0, e: eb });
+    solids.push({ kind: 'rect', x1: -B, y1: H, x2: W + B, y2: H + B, e: eb });
+    solids.push({ kind: 'rect', x1: -B, y1: 0, x2: 0, y2: H, e: eb });
+    solids.push({ kind: 'rect', x1: W, y1: 0, x2: W + B, y2: H, e: eb });
 
     const objs = map.objects || [];
     for (let src = 0; src < objs.length; src++) {
@@ -61,16 +122,16 @@
         case 'wall':
           solids.push({
             kind: 'seg', ax: num(o.x1, 0), ay: num(o.y1, 0), bx: num(o.x2, 0), by: num(o.y2, 0),
-            rad: num(o.t, DEFAULTS.wall.t) / 2, e: DEFAULTS.wall.e,
+            rad: num(o.t, DEFAULTS.wall.t) / 2, e: K.bounce.wall,
           });
           break;
         case 'block': {
           const r = rectOf(o);
-          solids.push({ kind: 'rect', ...r, e: DEFAULTS.block.e });
+          solids.push({ kind: 'rect', ...r, e: K.bounce.block });
           break;
         }
         case 'bumper':
-          solids.push({ kind: 'circle', x: num(o.x, 0), y: num(o.y, 0), r: Math.max(4, num(o.r, DEFAULTS.bumper.r)), e: DEFAULTS.bumper.e, kick: DEFAULTS.bumper.kick });
+          solids.push({ kind: 'circle', x: num(o.x, 0), y: num(o.y, 0), r: Math.max(4, num(o.r, DEFAULTS.bumper.r)), e: K.bounce.bumper, kick: K.bounce.bumperKick });
           break;
         case 'sand': case 'ice': case 'water':
           zones.push({ kind: o.type, ...rectOf(o), fx: 0, fy: 0, src });
@@ -78,7 +139,7 @@
         case 'slope': case 'boost': {
           const d = DEFAULTS[o.type];
           const [cx, cy] = deg2vec(num(o.angle, d.angle));
-          const s = num(o.strength, d.strength);
+          const s = num(o.strength, d.strength) * (o.type === 'slope' ? K.slopeFactor : K.boostFactor);
           zones.push({ kind: o.type, ...rectOf(o), fx: cx * s, fy: cy * s, src });
           break;
         }
@@ -97,11 +158,11 @@
   function withBalls(cm, balls, sx, sy) {
     if (!balls || !balls.length) return cm;
     const extra = [];
-    const min = BALL_R * 2 + 0.5;
+    const min = K.ballRadius * 2 + 0.5;
     for (let i = 0; i + 1 < balls.length; i += 2) {
       const x = balls[i], y = balls[i + 1];
       if (sx != null) { const dx = x - sx, dy = y - sy; if (dx * dx + dy * dy < min * min) continue; }
-      extra.push({ kind: 'circle', x, y, r: BALL_R, e: 0.55, kick: 0, ball: true });
+      extra.push({ kind: 'circle', x, y, r: K.ballRadius, e: K.bounce.ball, kick: 0, ball: true });
     }
     if (!extra.length) return cm;
     return Object.assign({}, cm, { solids: cm.solids.concat(extra) });
@@ -113,12 +174,12 @@
 
   function shotVelocity(angle, power) {
     power = Math.max(0, Math.min(1, num(power, 0)));
-    const sp = power * MAX_SPEED;
+    const sp = power * K.maxSpeed;
     return { vx: Math.cos(angle) * sp, vy: Math.sin(angle) * sp };
   }
 
   function collide(cm, s) {
-    const r = BALL_R;
+    const r = K.ballRadius;
     for (let i = 0; i < cm.solids.length; i++) {
       const o = cm.solids[i];
       let nx = 0, ny = 0, pen = 0;
@@ -181,6 +242,7 @@
   function step(cm, s) {
     if (s.done) return;
     s.bounce = false; s.hitV = 0; s.hit = null;
+    const SURF = K.surfaces, HOLE_R = K.holeRadius;
     let ax = 0, ay = 0, surf = SURF.grass, water = false;
     for (let i = 0; i < cm.zones.length; i++) {
       const z = cm.zones[i];
@@ -195,30 +257,31 @@
     // Lochsog
     const hx = cm.hole.x - s.x, hy = cm.hole.y - s.y;
     const hd = Math.sqrt(hx * hx + hy * hy);
-    if (hd < HOLE_R && hd > 1e-6) { ax += (hx / hd) * 2600; ay += (hy / hd) * 2600; }
+    if (hd < HOLE_R && hd > 1e-6) { ax += (hx / hd) * K.holePull; ay += (hy / hd) * K.holePull; }
 
     s.vx += ax * DT; s.vy += ay * DT;
     let sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
     if (sp > 0) {
       let ns = sp - (surf.decel + surf.drag * sp) * DT;
       if (ns < 0) ns = 0;
-      if (ns > SPEED_CAP) ns = SPEED_CAP;
+      if (ns > K.speedCap) ns = K.speedCap;
       const k = ns / sp;
       s.vx *= k; s.vy *= k; sp = ns;
     }
 
     // Bewegung in Teilschritten (kein Tunneln durch dünne Wände)
     const dist = sp * DT;
-    const n = Math.max(1, Math.ceil(dist / (BALL_R * 0.35)));
+    const n = Math.max(1, Math.ceil(dist / (K.ballRadius * 0.35)));
     const sdt = DT / n;
     for (let i = 0; i < n; i++) {
       s.x += s.vx * sdt; s.y += s.vy * sdt;
       collide(cm, s);
       const dx = cm.hole.x - s.x, dy = cm.hole.y - s.y;
       const d2 = dx * dx + dy * dy;
-      if (d2 < (HOLE_R - 3) * (HOLE_R - 3)) {
+      const cr = Math.max(1, HOLE_R - 3);
+      if (d2 < cr * cr) {
         const v2 = s.vx * s.vx + s.vy * s.vy;
-        if (v2 < CAPTURE_SPEED * CAPTURE_SPEED) {
+        if (v2 < K.captureSpeed * K.captureSpeed) {
           s.x = cm.hole.x; s.y = cm.hole.y; s.vx = 0; s.vy = 0;
           s.done = true; s.result = 'sunk'; s.t += DT; return;
         }
@@ -232,7 +295,7 @@
       if (a2 < surf.decel * surf.decel) { s.vx = 0; s.vy = 0; s.done = true; s.result = 'rest'; return; }
     }
     if (sp < STOP_SPEED * 6) s.slow += DT; else s.slow = 0;
-    if (s.slow > 1.2 || s.t > MAX_TIME) { s.vx = 0; s.vy = 0; s.done = true; s.result = 'rest'; }
+    if (s.slow > 1.2 || s.t > K.maxShotTime) { s.vx = 0; s.vy = 0; s.done = true; s.result = 'rest'; }
   }
 
   /**
@@ -243,7 +306,7 @@
     opts = opts || {};
     const s = createState(x, y, vx, vy);
     const every = opts.every || 2;
-    const maxT = opts.maxTime || MAX_TIME + 1;
+    const maxT = Math.min(opts.maxTime || 1e9, K.maxShotTime + 1);
     const points = opts.record ? [x, y] : null;
     const bounces = opts.record ? [] : null;
     let steps = 0;
@@ -293,8 +356,18 @@
     return out;
   }
 
-  return {
-    BALL_R, HOLE_R, DT, MAX_SPEED, MAX_SHOTS, CAPTURE_SPEED, SURF, DEFAULTS,
-    compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap,
+  const api = {
+    DT, DEFAULTS, DEFAULT_CONFIG,
+    configure, compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap,
   };
+  // Live-Werte (ändern sich mit configure)
+  Object.defineProperties(api, {
+    config: { get: () => K },
+    BALL_R: { get: () => K.ballRadius },
+    HOLE_R: { get: () => K.holeRadius },
+    MAX_SPEED: { get: () => K.maxSpeed },
+    MAX_SHOTS: { get: () => K.maxShots },
+    MISS_SCORE: { get: () => K.maxShots + K.missPenalty },
+  });
+  return api;
 });

@@ -1,0 +1,46 @@
+{
+  "_hinweis": "Kopiere diese Datei nach config.json und passe die Werte an. Änderungen werden ohne Neustart übernommen. Fehlende Werte = Standard.",
+  "maxSpeed": 3400,
+  "speedCap": 5000,
+  "dragDistance": 320,
+  "maxShots": 7,
+  "missPenalty": 1,
+  "waterPenalty": 0,
+  "ballRadius": 8,
+  "holeRadius": 14,
+  "captureSpeed": 560,
+  "holePull": 2600,
+  "maxShotTime": 40,
+  "surfaces": {
+    "grass": {
+      "decel": 220,
+      "drag": 0.32
+    },
+    "sand": {
+      "decel": 1250,
+      "drag": 2.6
+    },
+    "ice": {
+      "decel": 40,
+      "drag": 0.04
+    }
+  },
+  "bounce": {
+    "wall": 0.78,
+    "block": 0.72,
+    "border": 0.75,
+    "bumper": 1.05,
+    "bumperKick": 260,
+    "ball": 0.55
+  },
+  "slopeFactor": 1,
+  "boostFactor": 1,
+  "preview": {
+    "width": 4,
+    "minWidth": 1.2,
+    "fade": 0.8,
+    "fadeLength": 1500
+  },
+  "holeEndDelay": 5.5,
+  "maxPlayers": 8
+}

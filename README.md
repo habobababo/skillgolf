@@ -17,6 +17,37 @@ npm install
 npm start            # http://localhost:3100 (PORT per Umgebungsvariable änderbar)
 ```
 
+## Spielwerte einstellen
+
+Kopiere `config.example.json` nach `config.json` und ändere die Werte. Der Server merkt Änderungen innerhalb von etwa einer Sekunde, ein Neustart ist nicht nötig. Alle Spieler bekommen die neuen Werte automatisch. Was fehlt, bleibt auf dem Standardwert. `config.json` liegt nicht im Repo, deshalb überschreibt ein `git pull` deine Einstellungen nicht.
+
+```bash
+cp config.example.json config.json
+nano config.json
+```
+
+| Wert | Standard | Bedeutung |
+|---|---|---|
+| `maxSpeed` | 3400 | Abschussgeschwindigkeit bei 100 % Kraft (px/s) |
+| `speedCap` | 5000 | Absolute Höchstgeschwindigkeit, z. B. nach Boosts |
+| `dragDistance` | 320 | Ziehweg in Bildschirm-Pixeln für 100 % Kraft |
+| `maxShots` | 7 | Schläge pro Bahn |
+| `missPenalty` | 1 | Nicht eingelocht ergibt `maxShots + missPenalty` Punkte |
+| `waterPenalty` | 0 | Strafschläge bei Wasser |
+| `ballRadius` / `holeRadius` | 8 / 14 | Größe von Ball und Loch |
+| `captureSpeed` | 560 | Ist der Ball langsamer, fällt er ins Loch |
+| `holePull` | 2600 | Sog am Lochrand |
+| `maxShotTime` | 40 | Ein Schlag endet spätestens nach so vielen Sekunden |
+| `surfaces.grass/sand/ice` | | `decel` = feste Bremsung, `drag` = Bremsung abhängig vom Tempo |
+| `bounce.wall/block/border/bumper/ball` | | Rückprall (1 = verlustfrei, über 1 = beschleunigt) |
+| `bounce.bumperKick` | 260 | Zusätzlicher Stoß der Bumper |
+| `slopeFactor` / `boostFactor` | 1 / 1 | Multiplikator für alle Hänge bzw. Boosts |
+| `preview.width` / `preview.minWidth` | 4 / 1.2 | Dicke der Flugbahn-Vorschau am Ball bzw. Mindestdicke |
+| `preview.fade` | 0.8 | Wie stark die Vorschau zum Ende verblasst (0–1) |
+| `preview.fadeLength` | 1500 | Weg in px, nach dem die Vorschau maximal dünn und blass ist |
+| `holeEndDelay` | 5.5 | Sekunden, die die Punktetabelle zwischen den Bahnen steht |
+| `maxPlayers` | 8 | Spieler pro Raum |
+
 ## Steuerung
 
 | Aktion | Eingabe |

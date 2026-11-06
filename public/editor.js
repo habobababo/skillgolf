@@ -509,6 +509,7 @@
     const d = localStorage.getItem('skillshot.editorDraft');
     if (d) map = P.sanitizeMap(JSON.parse(d));
   } catch { /* leer */ }
+  fetch('/api/config').then((r) => r.json()).then((c) => P.configure(c)).catch(() => {});
   renderMapProps(); renderSelProps(); refreshList();
   requestAnimationFrame(frame);
 })();

@@ -28,13 +28,15 @@
 
   function onMessage(m) {
     switch (m.type) {
-      case 'welcome': myId = m.id; break;
+      case 'welcome': myId = m.id; applyConfig(m.config); break;
+      case 'config': applyConfig(m.config); break;
       case 'error': toast(m.text); break;
       case 'toast': toast(m.text); break;
       case 'joined': history.replaceState(null, '', '?room=' + m.code); break;
       case 'left': room = null; history.replaceState(null, '', location.pathname); show('menu'); break;
       case 'room': onRoom(m.room); break;
       case 'hole':
+        if (m.config) P.configure(m.config);
         map = m.map; cm = P.compile(map); anims.clear(); awaiting = false;
         $('overlay').classList.add('hidden');
         show('game');
@@ -45,6 +47,13 @@
       case 'finished': showScoreTable(true); break;
       case 'chat': chat(m); break;
     }
+  }
+
+  function applyConfig(c) {
+    if (!c) return;
+    P.configure(c);
+    if (map) { cm = P.compile(map); shotCm = null; }
+    renderHud(); renderBoard();
   }
 
   function onRoom(r) {
@@ -80,8 +89,8 @@
       } else if (m.result === 'water') {
         fx.text(a.pos.x, a.pos.y - 20, 'SPLASH!', '#5aa0ff', 26);
         if (mine) toast('💦 Wasser! Zurück zur letzten Position');
-        if (mine && m.done) toast('Keine Schläge mehr – 8 Punkte');
-      } else if (mine && m.done) toast('Keine Schläge mehr – 8 Punkte');
+        if (mine && m.done) toast(`Keine Schläge mehr – ${P.MISS_SCORE} Punkte`);
+      } else if (mine && m.done) toast(`Keine Schläge mehr – ${P.MISS_SCORE} Punkte`);
       renderBoard(); renderHud();
     };
     renderHud(); renderBoard();
@@ -238,7 +247,7 @@
 
   // ------------------------------------------------------------ Spiel-HUD
   $('btnQuit').onclick = () => { if (confirm('Raum verlassen?')) send({ type: 'leave' }); };
-  $('btnSkip').onclick = () => { if (confirm('Bahn für alle beenden? Wer nicht eingelocht hat, bekommt 8.')) send({ type: 'skip' }); };
+  $('btnSkip').onclick = () => { if (confirm(`Bahn für alle beenden? Wer nicht eingelocht hat, bekommt ${P.MISS_SCORE}.`)) send({ type: 'skip' }); };
 
   function renderHud() {
     if (!room || !map) return;
@@ -264,7 +273,7 @@
       const rolling = a && !a.done;
       let st;
       if (room.phase === 'lobby') st = '';
-      else if (p.done && !rolling) st = p.sunk ? `⛳ eingelocht mit <b>${p.shots}</b>` : '✖ <b>8</b> Punkte';
+      else if (p.done && !rolling) st = p.sunk ? `⛳ eingelocht mit <b>${p.shots}</b>` : `✖ <b>${P.MISS_SCORE}</b> Punkte`;
       else st = rolling ? 'rollt …' : `Schlag <b>${p.shots + 1}</b> / ${P.MAX_SHOTS}`;
       h += `<div class="bp ${p.id === myId ? 'me' : ''}"><div class="top">${avatarHtml(p)}<span class="nm">${esc(p.name)}</span>${p.id === room.hostId ? '👑' : ''}<span class="tot">${total(p)}</span></div><div class="st">${st}</div></div>`;
     }

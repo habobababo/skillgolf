@@ -7,7 +7,7 @@
     wall: '#2ef2ff', block: '#8a5cff', bumper: '#ff2e88', sand: '#ffb02e', ice: '#a6fbff',
     water: '#2f7bff', slope: '#39ff8a', boost: '#ffe600', hole: '#ffffff',
   };
-  const MAX_DRAG = 320; // CSS-Pixel Ziehweg für 100 % Kraft
+  const MAX_DRAG = () => P.config.dragDistance; // CSS-Pixel Ziehweg für 100 % Kraft
 
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
   function hash(n) { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); }
@@ -328,23 +328,50 @@
     ctx.restore();
   }
 
-  /** Vorhergesagte Flugbahn */
+  /** Vorhergesagte Flugbahn – wird mit der Länge dünner und blasser, aber nie dünner als minWidth */
   function drawPrediction(ctx, pred, color, opts) {
     if (!pred || !pred.points || pred.points.length < 4) return;
     opts = opts || {};
     const pts = pred.points, n = pts.length / 2, t = opts.t || 0;
     const ghost = !!opts.ghost;
+    const cfg = P.config.preview;
+    const w0 = ghost ? cfg.width * 0.6 : cfg.width;
+    const wMin = Math.min(w0, cfg.minWidth);
+    const a0 = ghost ? 0.45 : 1;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.beginPath(); ctx.moveTo(pts[0], pts[1]);
-    for (let i = 1; i < n; i++) ctx.lineTo(pts[i * 2], pts[i * 2 + 1]);
-    ctx.strokeStyle = color; ctx.globalAlpha = ghost ? 0.08 : 0.16; ctx.lineWidth = 9; ctx.stroke();
-    ctx.globalAlpha = ghost ? 0.35 : 0.9; ctx.lineWidth = ghost ? 1.5 : 2.5;
-    ctx.setLineDash(ghost ? [2, 8] : [12, 7]); ctx.lineDashOffset = -t * 60;
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.globalAlpha = ghost ? 0.25 : 0.7; ctx.strokeStyle = '#fff'; ctx.lineWidth = 0.8; ctx.stroke();
+    // Strecke entlang der Bahn -> Anteil f (0 am Ball, 1 ab fadeLength)
+    let dist = 0, s0 = 0;
+    const CH = 6; // Punkte pro Teilstück
+    for (let s = 0; s < n - 1; s = s0) {
+      s0 = Math.min(n - 1, s + CH);
+      const f = Math.min(1, dist / cfg.fadeLength);
+      const w = wMin + (w0 - wMin) * (1 - f);
+      const al = a0 * (1 - cfg.fade * f);
+      ctx.beginPath(); ctx.moveTo(pts[s * 2], pts[s * 2 + 1]);
+      for (let i = s + 1; i <= s0; i++) {
+        dist += Math.hypot(pts[i * 2] - pts[i * 2 - 2], pts[i * 2 + 1] - pts[i * 2 - 1]);
+        ctx.lineTo(pts[i * 2], pts[i * 2 + 1]);
+      }
+      // Glow
+      ctx.strokeStyle = color; ctx.globalAlpha = al * 0.18; ctx.lineWidth = w * 3; ctx.stroke();
+      // Kern
+      ctx.globalAlpha = al * 0.95; ctx.lineWidth = w; ctx.stroke();
+      ctx.globalAlpha = al * 0.6; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(0.5, w * 0.35); ctx.stroke();
+    }
+    // Lauflicht, das die Richtung zeigt
+    ctx.globalAlpha = a0 * 0.9; ctx.fillStyle = '#fff';
+    const step = 14, ph = Math.floor(t * 40) % step;
+    let dd = 0;
+    for (let i = 1; i < n && i < 1200; i++) {
+      dd += Math.hypot(pts[i * 2] - pts[i * 2 - 2], pts[i * 2 + 1] - pts[i * 2 - 1]);
+      if ((i + step - ph) % step === 0) {
+        const f = Math.min(1, dd / cfg.fadeLength);
+        ctx.globalAlpha = a0 * 0.8 * (1 - cfg.fade * f);
+        ctx.beginPath(); ctx.arc(pts[i * 2], pts[i * 2 + 1], Math.max(wMin * 0.6, (wMin + (w0 - wMin) * (1 - f)) * 0.55), 0, 7); ctx.fill();
+      }
+    }
     // Abpraller
     if (pred.bounces) {
       ctx.globalAlpha = ghost ? 0.5 : 1;
@@ -592,7 +619,7 @@
         if (!this.enabled) { this.cancel(); return; }
         // Ball fliegt in Zugrichtung (Weltkoordinaten: rechts = rechts, oben = oben)
         const dx = this.cur.x - this.anchor.x, dy = this.cur.y - this.anchor.y, d = Math.hypot(dx, dy);
-        this.power = clamp(d / MAX_DRAG, 0, 1);
+        this.power = clamp(d / MAX_DRAG(), 0, 1);
         if (d > 6) this.angle = Math.atan2(dy, dx) + this.angleOff;
         if (this.sfx) this.sfx.tension(this.power);
         // Energie-Partikel, die in den Ball gesaugt werden
@@ -649,7 +676,7 @@
         ctx.save(); v.screen();
         ctx.globalCompositeOperation = 'lighter';
         ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1 * d; ctx.setLineDash([4 * d, 6 * d]);
-        ctx.beginPath(); ctx.arc(ax, ay, MAX_DRAG * d, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(ax, ay, MAX_DRAG() * d, 0, 7); ctx.stroke(); ctx.setLineDash([]);
         ctx.strokeStyle = powerColor(pw); ctx.lineWidth = 3 * d; glow(ctx, powerColor(pw), 14);
         ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(cx, cy); ctx.stroke();
         ctx.fillStyle = '#fff';
