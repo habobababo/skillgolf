@@ -53,7 +53,10 @@
     solids.push({ kind: 'rect', x1: -B, y1: 0, x2: 0, y2: H, e: 0.75 });
     solids.push({ kind: 'rect', x1: W, y1: 0, x2: W + B, y2: H, e: 0.75 });
 
-    for (const o of map.objects || []) {
+    const objs = map.objects || [];
+    for (let src = 0; src < objs.length; src++) {
+      const o = objs[src];
+      const n0 = solids.length;
       switch (o.type) {
         case 'wall':
           solids.push({
@@ -70,16 +73,17 @@
           solids.push({ kind: 'circle', x: num(o.x, 0), y: num(o.y, 0), r: Math.max(4, num(o.r, DEFAULTS.bumper.r)), e: DEFAULTS.bumper.e, kick: DEFAULTS.bumper.kick });
           break;
         case 'sand': case 'ice': case 'water':
-          zones.push({ kind: o.type, ...rectOf(o), fx: 0, fy: 0 });
+          zones.push({ kind: o.type, ...rectOf(o), fx: 0, fy: 0, src });
           break;
         case 'slope': case 'boost': {
           const d = DEFAULTS[o.type];
           const [cx, cy] = deg2vec(num(o.angle, d.angle));
           const s = num(o.strength, d.strength);
-          zones.push({ kind: o.type, ...rectOf(o), fx: cx * s, fy: cy * s });
+          zones.push({ kind: o.type, ...rectOf(o), fx: cx * s, fy: cy * s, src });
           break;
         }
       }
+      for (let k = n0; k < solids.length; k++) solids[k].src = src;
     }
     const start = map.start || { x: 100, y: H / 2 };
     const hole = map.hole || { x: W - 100, y: H / 2 };
@@ -104,7 +108,7 @@
   }
 
   function createState(x, y, vx, vy) {
-    return { x, y, vx, vy, t: 0, slow: 0, done: false, result: null, sx: x, sy: y, bounce: false };
+    return { x, y, vx, vy, t: 0, slow: 0, done: false, result: null, sx: x, sy: y, bounce: false, hitV: 0, hit: null };
   }
 
   function shotVelocity(angle, power) {
@@ -166,7 +170,7 @@
         s.vx -= (1 + o.e) * vn * nx;
         s.vy -= (1 + o.e) * vn * ny;
         if (o.kick) { s.vx += nx * o.kick; s.vy += ny * o.kick; }
-        if (vn < -40) s.bounce = true;
+        if (vn < -40) { s.bounce = true; if (-vn > s.hitV) { s.hitV = -vn; s.hit = o; } }
       }
     }
   }
@@ -176,7 +180,7 @@
   /** einen Zeitschritt simulieren */
   function step(cm, s) {
     if (s.done) return;
-    s.bounce = false;
+    s.bounce = false; s.hitV = 0; s.hit = null;
     let ax = 0, ay = 0, surf = SURF.grass, water = false;
     for (let i = 0; i < cm.zones.length; i++) {
       const z = cm.zones[i];

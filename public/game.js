@@ -7,14 +7,15 @@
   let allMaps = [];
   let awaiting = false;
   const anims = new Map(); // playerId -> BallAnim
-  const effects = [];       // kleine Partikel bei Einlochen/Wasser
+  const fx = new window.Skill.FX();
+  const sfx = new window.Skill.SFX();
 
   // ------------------------------------------------------------ Verbindung
   function connect() {
     return new Promise((resolve, reject) => {
       if (ws && ws.readyState === 1) return resolve();
       ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
-      ws.onopen = () => { send({ type: 'hello', name: myName() }); resolve(); };
+      ws.onopen = () => { send({ type: 'hello', name: myName(), avatar: myAvatar }); resolve(); };
       ws.onerror = () => reject(new Error('Keine Verbindung zum Server'));
       ws.onclose = () => { toast('Verbindung getrennt'); room = null; show('menu'); };
       ws.onmessage = (e) => onMessage(JSON.parse(e.data));
@@ -71,12 +72,13 @@
       if (m.score != null) p.scores[room.holeIndex] = m.score;
       const mine = m.id === myId;
       if (m.result === 'sunk') {
-        burst(a.pos.x, a.pos.y, p.color, 40);
         const par = map.par, s = m.shots;
-        const word = s === 1 ? 'HOLE-IN-ONE!' : s <= par - 2 ? 'Eagle!' : s === par - 1 ? 'Birdie!' : s === par ? 'Par' : s === par + 1 ? 'Bogey' : `+${s - par}`;
+        const word = s === 1 ? 'HOLE-IN-ONE!' : s <= par - 2 ? 'EAGLE!' : s === par - 1 ? 'BIRDIE!' : s === par ? 'PAR' : s === par + 1 ? 'BOGEY' : `+${s - par}`;
+        fx.text(map.hole.x, map.hole.y - 40, word, p.color, s === 1 ? 54 : s < par ? 40 : 30);
+        if (s === 1 || s <= par - 1) celebrate(p.color, s === 1);
         toast(mine ? `⛳ ${word} (${s} Schl.)` : `${p.name}: ${word}`, mine);
       } else if (m.result === 'water') {
-        burst(a.pos.x, a.pos.y, '#7cc4ff', 25);
+        fx.text(a.pos.x, a.pos.y - 20, 'SPLASH!', '#5aa0ff', 26);
         if (mine) toast('💦 Wasser! Zurück zur letzten Position');
         if (mine && m.done) toast('Keine Schläge mehr – 8 Punkte');
       } else if (mine && m.done) toast('Keine Schläge mehr – 8 Punkte');
@@ -115,6 +117,52 @@
     if (e.key === 'Enter' && $('game').classList.contains('active') && document.activeElement !== $('chatIn')) { $('chatIn').focus(); e.preventDefault(); }
   });
 
+  // ------------------------------------------------------------ Profilbilder
+  let myAvatar = localStorage.getItem('skillshot.avatar') || null;
+  const imgCache = new Map();
+  function img(url) {
+    if (!url) return null;
+    let i = imgCache.get(url);
+    if (!i) { i = new Image(); i.src = url; imgCache.set(url, i); }
+    return i;
+  }
+  // Standardbild für Spieler 2 (public/avatars/player2.jpg), falls vorhanden
+  let p2Default = null;
+  { const t = new Image(); t.onload = () => { p2Default = t.src; imgCache.set(t.src, t); }; t.src = '/avatars/player2.jpg'; }
+  function avatarOf(p) {
+    if (p.avatar) return p.avatar;
+    if (p2Default && room && room.players.indexOf(p) === 1) return p2Default;
+    return null;
+  }
+  function avatarHtml(p) {
+    const a = avatarOf(p);
+    return a ? `<span class="avatar" style="color:${p.color};background-image:url('${a}')"></span>`
+      : `<span class="dot" style="background:${p.color};color:${p.color}"></span>`;
+  }
+  function renderAvPrev() {
+    $('avPrev').style.backgroundImage = myAvatar ? `url('${myAvatar}')` : '';
+    $('avPrev').textContent = myAvatar ? '' : '🙂';
+  }
+  renderAvPrev();
+  $('btnAv').onclick = () => $('avFile').click();
+  $('btnAvClear').onclick = () => { myAvatar = null; localStorage.removeItem('skillshot.avatar'); renderAvPrev(); send({ type: 'avatar', data: null }); };
+  $('avFile').onchange = () => {
+    const f = $('avFile').files[0]; if (!f) return;
+    const im = new Image();
+    im.onload = () => {
+      const c = document.createElement('canvas'); c.width = c.height = 128;
+      const g = c.getContext('2d'), m = Math.min(im.width, im.height);
+      g.drawImage(im, (im.width - m) / 2, (im.height - m) / 2, m, m, 0, 0, 128, 128);
+      myAvatar = c.toDataURL('image/jpeg', 0.85);
+      try { localStorage.setItem('skillshot.avatar', myAvatar); } catch { /* voll */ }
+      renderAvPrev(); send({ type: 'avatar', data: myAvatar });
+      URL.revokeObjectURL(im.src);
+    };
+    im.onerror = () => toast('Bild konnte nicht gelesen werden');
+    im.src = URL.createObjectURL(f);
+    $('avFile').value = '';
+  };
+
   // ------------------------------------------------------------ Menü
   $('name').value = localStorage.getItem('skillshot.name') || '';
   $('name').addEventListener('change', () => localStorage.setItem('skillshot.name', myName()));
@@ -123,7 +171,7 @@
 
   async function enter(msg) {
     localStorage.setItem('skillshot.name', myName());
-    try { await connect(); send({ type: 'hello', name: myName() }); send(msg); }
+    try { await connect(); send({ type: 'hello', name: myName(), avatar: myAvatar }); send(msg); }
     catch (e) { toast(e.message); }
   }
   $('btnCreate').onclick = () => enter({ type: 'create' });
@@ -143,7 +191,7 @@
     const ul = $('lobbyPlayers'); ul.innerHTML = '';
     for (const p of room.players) {
       const li = document.createElement('li');
-      li.innerHTML = `<span class="dot" style="background:${p.color}"></span><span></span>${p.id === room.hostId ? '<span class="crown">👑</span>' : ''}`;
+      li.innerHTML = `${avatarHtml(p)}<span></span>${p.id === room.hostId ? '<span class="crown">👑</span>' : ''}`;
       li.children[1].textContent = p.name + (p.id === myId ? ' (du)' : '');
       ul.appendChild(li);
     }
@@ -218,7 +266,7 @@
       if (room.phase === 'lobby') st = '';
       else if (p.done && !rolling) st = p.sunk ? `⛳ eingelocht mit <b>${p.shots}</b>` : '✖ <b>8</b> Punkte';
       else st = rolling ? 'rollt …' : `Schlag <b>${p.shots + 1}</b> / ${P.MAX_SHOTS}`;
-      h += `<div class="bp ${p.id === myId ? 'me' : ''}"><div class="top"><span class="dot" style="background:${p.color}"></span><span class="nm">${esc(p.name)}</span>${p.id === room.hostId ? '👑' : ''}<span class="tot">${total(p)}</span></div><div class="st">${st}</div></div>`;
+      h += `<div class="bp ${p.id === myId ? 'me' : ''}"><div class="top">${avatarHtml(p)}<span class="nm">${esc(p.name)}</span>${p.id === room.hostId ? '👑' : ''}<span class="tot">${total(p)}</span></div><div class="st">${st}</div></div>`;
     }
     b.innerHTML = h;
   }
@@ -235,7 +283,7 @@
     for (let i = 0; i < n; i++) h += `<td>${room.playlist[i].par}</td>`;
     h += `<td>${parSum(n)}</td><td></td></tr>`;
     ps.forEach((p, k) => {
-      h += `<tr class="${final && k === 0 ? 'win' : ''}"><td><span class="dot" style="background:${p.color}"></span> ${esc(p.name)}</td>`;
+      h += `<tr class="${final && k === 0 ? 'win' : ''}"><td>${avatarHtml(p)} ${esc(p.name)}</td>`;
       for (let i = 0; i < n; i++) {
         const s = p.scores[i], par = room.playlist[i].par;
         h += `<td class="${s == null ? '' : s < par ? 'under' : s > par ? 'over' : ''}">${s == null ? '–' : s}</td>`;
@@ -261,6 +309,8 @@
   const canvas = $('cv');
   const view = new S.View(canvas);
   const ctrl = new S.ShotController(canvas, view, {
+    fx, sfx,
+    color: () => (me() ? me().color : '#fff'),
     canShoot: () => {
       const p = me();
       if (!room || room.phase !== 'playing' || !p || p.done || awaiting || !cm) return false;
@@ -269,6 +319,10 @@
     },
     onShoot: (angle, power) => { awaiting = true; send({ type: 'shot', angle, power }); setTimeout(() => { awaiting = false; }, 3000); },
   });
+
+  $('btnMute').textContent = sfx.muted ? '🔇' : '🔊';
+  $('btnMute').onclick = () => { $('btnMute').textContent = sfx.toggle() ? '🔇' : '🔊'; $('btnMute').blur(); };
+  window.addEventListener('keydown', (e) => { if (e.code === 'KeyM' && document.activeElement.tagName !== 'INPUT') $('btnMute').click(); });
 
   // Kollisionswelt für den eigenen nächsten Schlag (gleiche Regel wie der Server)
   let shotCm = null, shotCmKey = '';
@@ -289,13 +343,26 @@
     return p.ball;
   }
 
-  function burst(x, y, color, n) {
+  /** Feuerwerk über der ganzen Bahn */
+  function celebrate(color, big) {
+    sfx.fanfare();
+    fx.screen(big ? 0.7 : 0.35, big ? '255,240,180' : '255,255,255');
+    fx.shake(big ? 14 : 7);
+    const n = big ? 9 : 4;
+    const cols = [color, '#00eaff', '#ff2e88', '#ffe600', '#39ff8a', '#c36bff'];
     for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2, s = 60 + Math.random() * 220;
-      effects.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.6 + Math.random() * 0.5, t: 0, color });
+      setTimeout(() => {
+        const x = map.width * (0.15 + Math.random() * 0.7), y = map.height * (0.15 + Math.random() * 0.7), c = cols[i % cols.length];
+        fx.spark(x, y, c, 70, 520, { life: 1.1, drag: 2.2 });
+        fx.spark(x, y, '#fff', 20, 300, { life: 0.6, kind: 'dot' });
+        fx.ring(x, y, c, 120, 0.8, 4);
+        sfx.tone(300 + Math.random() * 500, 0.3, 'triangle', 0.12, 80);
+      }, 200 + i * 180);
     }
   }
 
+  const rot = new Map(); // Drehwinkel der Profilbild-Bälle
+  const SPAWN_FADE = 5; // Sekunden, die ein Schweif nach dem Stillstand nachleuchtet
   let last = performance.now();
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
@@ -304,43 +371,40 @@
       for (const [id, a] of anims) {
         const wasDone = a.done;
         a.update(dt);
+        S.animFx(a, fx, sfx, a.player ? a.player.color : '#fff', map, dt);
         if (!wasDone && a.done && a.onDone) a.onDone();
-        if (a.done && a.fade > 1.5) anims.delete(id);
+        if (a.done && a.fade > SPAWN_FADE) anims.delete(id);
       }
+      fx.ambient(map, dt);
+      fx.update(dt);
       view.fit(map.width, map.height);
-      view.begin();
+      view.begin(fx);
       const ctx = view.ctx;
-      S.drawMap(ctx, map, t);
+      S.drawMap(ctx, map, t, { view, cache: true, fx });
       const mine = me();
-      // andere Bälle zuerst, eigener oben
+      // Leuchtschweife (Curve-Linien) aller Schläge
+      for (const [, a] of anims) if (a.player) S.drawTrail(ctx, a.trail, a.player.color, a.done ? Math.max(0, 1 - a.fade / SPAWN_FADE) : 1);
       const ordered = room.players.slice().sort((a, b) => (a.id === myId) - (b.id === myId));
       for (const p of ordered) {
         if (!p.ball) continue;
         const a = anims.get(p.id);
-        if (a && !a.done) S.drawTrail(ctx, a.trail, p.color);
         if (p.done && p.sunk && !(a && !a.done)) continue; // im Loch
         const pos = ballPos(p);
-        S.drawBall(ctx, pos.x, pos.y, p.color, p.id === myId ? null : p.name, p.id === myId ? 1 : 0.85);
+        if (a && !a.done) rot.set(p.id, (rot.get(p.id) || 0) + a.speed * dt / (P.BALL_R * 2.5));
+        S.drawBall(ctx, pos.x, pos.y, p.color, p.id === myId ? null : p.name, p.id === myId ? 1 : 0.85, img(avatarOf(p)), rot.get(p.id) || 0);
       }
       if (mine && mine.ball) {
         ctrl.update(dt, mine.ball);
-        ctrl.draw(ctx, mine.ball, mine.color, cmForMe(mine),S.PREVIEW_TIME[room.settings.preview] ?? 60, t);
-        if (ctrl.enabled) {
-          // Ring um eigenen Ball, wenn man dran ist
-          ctx.strokeStyle = 'rgba(255,255,255,' + (0.4 + Math.sin(t * 5) * 0.3) + ')'; ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.arc(mine.ball.x, mine.ball.y, P.BALL_R + 6, 0, 7); ctx.stroke();
+        if (ctrl.enabled && !ctrl.dragging) {
+          ctx.save(); ctx.globalCompositeOperation = 'lighter';
+          ctx.strokeStyle = mine.color; ctx.globalAlpha = 0.35 + Math.sin(t * 5) * 0.25; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(mine.ball.x, mine.ball.y, P.BALL_R + 18 + Math.sin(t * 5) * 3, 0, 7); ctx.stroke(); ctx.restore();
         }
+        ctrl.draw(ctx, mine.ball, mine.color, cmForMe(mine), S.PREVIEW_TIME[room.settings.preview] ?? 60, t);
       }
-      // Partikel
-      for (let i = effects.length - 1; i >= 0; i--) {
-        const e = effects[i]; e.t += dt;
-        if (e.t > e.life) { effects.splice(i, 1); continue; }
-        e.x += e.vx * dt; e.y += e.vy * dt; e.vx *= 0.94; e.vy *= 0.94;
-        ctx.globalAlpha = 1 - e.t / e.life; ctx.fillStyle = e.color;
-        ctx.beginPath(); ctx.arc(e.x, e.y, 3, 0, 7); ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-      const pw = ctrl.charging ? ctrl.power : ctrl.lastPower;
+      fx.draw(ctx);
+      fx.drawScreen(ctx, canvas.width, canvas.height);
+      const pw = ctrl.dragging ? ctrl.power : ctrl.lastPower;
       $('hudPower').textContent = ctrl.enabled ? `Kraft ${(pw * 100).toFixed(0)} % · Winkel ${((ctrl.angle * 180 / Math.PI + 360) % 360).toFixed(1)}°` : '';
     }
     requestAnimationFrame(frame);

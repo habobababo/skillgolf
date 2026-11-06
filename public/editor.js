@@ -387,7 +387,9 @@
   };
 
   // ------------------------------------------------------------ Test-Modus
+  const fx = new S.FX(), sfx = new S.SFX();
   const ctrl = new S.ShotController(canvas, view, {
+    fx, sfx, color: () => '#ffe03a',
     canShoot: () => !!testing && !testing.anim && !testing.done,
     onShoot: (angle, power) => {
       const v = P.shotVelocity(angle, power);
@@ -415,16 +417,18 @@
     const T = testing;
     if (T.anim) {
       T.anim.update(dt);
+      S.animFx(T.anim, fx, sfx, '#ffe03a', map, dt);
       T.ball = T.anim.pos;
       if (T.anim.done) {
         const r = T.anim.s.result;
+        T.lastTrail = T.anim.trail; T.trailFade = 0;
         T.anim = null;
         if (r === 'water') { T.ball = T.from; toast('💦 Wasser – zurück'); }
         if (r === 'sunk') { T.done = true; toast(`⛳ Eingelocht mit ${T.shots} Schlag/Schlägen (Par ${map.par})`); }
         else if (T.shots >= P.MAX_SHOTS) { T.done = true; toast('Keine Schläge mehr'); }
       }
     }
-    $('testInfo').textContent = T.done ? `Fertig – ${T.shots} Schläge · Leertaste/Klick = neu starten · Esc = beenden` : `Test · Schlag ${T.shots + 1}/${P.MAX_SHOTS} · Esc beendet`;
+    $('testInfo').textContent = T.done ? `Fertig – ${T.shots} Schläge · Leertaste/Klick = neu starten · Esc = beenden` : `Test · Schlag ${T.shots + 1}/${P.MAX_SHOTS} · Klicken & ziehen = Kraft · Esc beendet`;
   }
   canvas.addEventListener('pointerdown', () => { if (testing && testing.done) startTest(); });
 
@@ -466,16 +470,19 @@
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     const t = now / 1000;
     view.fit(map.width, map.height);
-    view.begin();
+    if (testing) { fx.ambient(map, dt); }
+    fx.update(dt);
+    view.begin(fx);
     const ctx = view.ctx;
-    S.drawMap(ctx, map, t);
+    S.drawMap(ctx, map, t, { view, cache: false, fx });
     if (testing) {
       updateTest(dt);
       if (testing) {
-        if (testing.anim) S.drawTrail(ctx, testing.anim.trail, '#ffcf3f');
-        if (!(testing.done && !testing.anim && Math.hypot(testing.ball.x - testing.cm.hole.x, testing.ball.y - testing.cm.hole.y) < 1)) S.drawBall(ctx, testing.ball.x, testing.ball.y, '#ffcf3f');
+        if (testing.anim) S.drawTrail(ctx, testing.anim.trail, '#ffe03a');
+        else if (testing.lastTrail) { testing.trailFade += dt; S.drawTrail(ctx, testing.lastTrail, '#ffe03a', Math.max(0, 1 - testing.trailFade / 4)); }
+        if (!(testing.done && !testing.anim && Math.hypot(testing.ball.x - testing.cm.hole.x, testing.ball.y - testing.cm.hole.y) < 1)) S.drawBall(ctx, testing.ball.x, testing.ball.y, '#ffe03a');
         ctrl.update(dt, testing.ball);
-        ctrl.draw(ctx, testing.ball, '#ffcf3f', testing.cm, 60, t);
+        ctrl.draw(ctx, testing.ball, '#ffe03a', testing.cm, 60, t);
       }
     } else {
       if (!drag || drag.mode !== 'create') drawGrid(ctx);
@@ -488,10 +495,12 @@
         const x = snapV(mouse.x), y = snapV(mouse.y);
         ctx.strokeStyle = 'rgba(255,207,63,0.8)'; ctx.lineWidth = 1 / view.scale;
         ctx.beginPath(); ctx.moveTo(x - 10, y); ctx.lineTo(x + 10, y); ctx.moveTo(x, y - 10); ctx.lineTo(x, y + 10); ctx.stroke();
-        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.font = `${12 / view.scale}px system-ui`;
+        ctx.fillStyle = 'rgba(255,224,58,0.9)'; ctx.font = `${12 / view.scale}px system-ui`;
         ctx.fillText(`${x}, ${y}`, x + 12 / view.scale, y - 8 / view.scale);
       }
     }
+    fx.draw(ctx);
+    fx.drawScreen(ctx, canvas.width, canvas.height);
     requestAnimationFrame(frame);
   }
 

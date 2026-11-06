@@ -93,7 +93,7 @@ const server = http.createServer((req, res) => {
 });
 
 // ---------------------------------------------------------------- Räume
-const COLORS = ['#ff4d4d', '#4da6ff', '#ffd23f', '#5ce65c', '#c77dff', '#ff9f43', '#00e0d0', '#ff6ec7'];
+const COLORS = ['#ff3860', '#3ec5ff', '#ffe03a', '#3dff7a', '#c36bff', '#ff9a3c', '#00ffe1', '#ff5edb'];
 const rooms = new Map();
 let nextId = 1;
 
@@ -103,6 +103,11 @@ function code() {
   do { c = Array.from({ length: 4 }, () => A[Math.floor(Math.random() * A.length)]).join(''); } while (rooms.has(c));
   return c;
 }
+/** Profilbild: nur kleine Base64-Bilder (Client skaliert auf 128×128) */
+function validAvatar(d) {
+  if (typeof d !== 'string' || d.length > 60000) return null;
+  return /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(d) ? d : null;
+}
 function send(ws, msg) { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); }
 function broadcast(room, msg) { const s = JSON.stringify(msg); for (const p of room.players) if (p.ws.readyState === 1) p.ws.send(s); }
 
@@ -111,7 +116,7 @@ function publicRoom(room) {
     code: room.code, hostId: room.hostId, phase: room.phase, holeIndex: room.holeIndex,
     playlist: room.playlist, settings: room.settings,
     players: room.players.map((p) => ({
-      id: p.id, name: p.name, color: p.color, scores: p.scores, shots: p.shots, done: p.done, sunk: p.sunk,
+      id: p.id, name: p.name, color: p.color, avatar: p.avatar || null, scores: p.scores, shots: p.shots, done: p.done, sunk: p.sunk,
       ball: p.ball,
     })),
   };
@@ -223,7 +228,7 @@ function joinRoom(p, room) {
   syncRoom(room);
 }
 
-const wss = new WebSocketServer({ server, maxPayload: 64 * 1024 });
+const wss = new WebSocketServer({ server, maxPayload: 96 * 1024 });
 wss.on('connection', (ws) => {
   const p = { id: nextId++, ws, name: 'Spieler', room: null, scores: [] };
   send(ws, { type: 'welcome', id: p.id });
@@ -236,6 +241,11 @@ wss.on('connection', (ws) => {
     switch (msg.type) {
       case 'hello':
         p.name = String(msg.name || 'Spieler').trim().slice(0, 16) || 'Spieler';
+        if ('avatar' in msg) p.avatar = validAvatar(msg.avatar);
+        break;
+      case 'avatar':
+        p.avatar = validAvatar(msg.data);
+        if (room) syncRoom(room);
         break;
       case 'create': {
         const r = {

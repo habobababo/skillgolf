@@ -15,6 +15,15 @@
     <h1 class="logo">SKILL<span>SHOT</span></h1>
     <p class="sub">Multiplayer-Minigolf · 7 Schläge pro Bahn</p>
     <label>Dein Name <input id="name" maxlength="16" placeholder="Spieler"></label>
+    <div class="avrow">
+      <div id="avPrev" class="avatar big"></div>
+      <div class="avbtns">
+        <button id="btnAv" class="small" type="button">Profilbild wählen</button>
+        <button id="btnAvClear" class="small ghost" type="button">Entfernen</button>
+        <span class="muted">erscheint auf deinem Ball</span>
+      </div>
+      <input type="file" id="avFile" accept="image/*" class="hidden">
+    </div>
     <button id="btnCreate" class="primary">Raum erstellen</button>
     <div class="row">
       <input id="joinCode" maxlength="4" placeholder="CODE" class="code">
@@ -22,8 +31,8 @@
     </div>
     <a class="link" href="/editor">🛠 Map-Editor öffnen</a>
     <div class="help">
-      <b>Steuerung:</b> Maus zielt · <b>Linke Maustaste / Leertaste halten</b> lädt den Schlag auf (pendelt 0→100→0 %) · loslassen schlägt ·
-      <b>←/→</b> Feinjustierung (Shift = grob) · <b>↑/↓</b> Vorschau-Stärke · <b>Rechtsklick/Esc</b> abbrechen
+      <b>Steuerung:</b> Irgendwo <b>klicken &amp; ziehen</b> – je weiter weg vom Klickpunkt, desto stärker; der Ball fliegt entgegen der Zugrichtung (Schleuder) · loslassen schlägt ·
+      <b>←/→</b> Feinjustierung (Shift = grob) · <b>Leertaste</b> schlägt mit der Vorschau-Kraft (<b>↑/↓</b>) · <b>Rechtsklick/Esc</b> abbrechen · <b>M</b> Ton
     </div>
   </div>
 </section>
@@ -73,6 +82,7 @@
     <div id="shotDots"></div>
     <div class="hudright">
       <span id="hudPower"></span>
+      <button id="btnMute" class="small ghost" title="Ton an/aus (M)">🔊</button>
       <button id="btnSkip" class="small ghost">Bahn überspringen</button>
       <button id="btnQuit" class="small ghost">Verlassen</button>
     </div>
