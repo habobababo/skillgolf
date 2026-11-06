@@ -3,6 +3,7 @@
  "width": 1200,
  "height": 800,
  "name": "Erste Schritte",
+ "difficulty": "easy",
  "par": 2,
  "start": {
   "x": 120,

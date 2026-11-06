@@ -3,6 +3,7 @@
  "width": 1200,
  "height": 800,
  "name": "Sandkasten",
+ "difficulty": "easy",
  "par": 3,
  "start": {
   "x": 120,

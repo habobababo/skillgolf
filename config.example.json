@@ -81,6 +81,14 @@
     "steerTime": 2.5,
     "steerAccel": 1800
   },
+  "turn": {
+    "timeLimit": 45
+  },
+  "magnet": {
+    "usesPerHole": 2,
+    "strength": 3200,
+    "radius": 420
+  },
   "fps": 60,
   "holeEndDelay": 5.5,
   "maxPlayers": 8

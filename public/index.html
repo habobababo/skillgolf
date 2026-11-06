@@ -33,7 +33,7 @@
     <a class="link" href="/editor">🛠 Map-Editor öffnen</a>
     <div class="help">
       <b>Steuerung:</b> Irgendwo <b>klicken &amp; ziehen</b> – je weiter weg vom Klickpunkt, desto stärker; der Ball fliegt in Zugrichtung · loslassen schlägt ·
-      <b>←/→</b> Feinjustierung (Shift = grob) · <b>Leertaste</b> schlägt mit der Vorschau-Kraft (<b>↑/↓</b>) · <b>Rechtsklick/Esc</b> abbrechen · <b>M</b> Ton
+      <b>←/→</b> Feinjustierung (Shift = grob) · <b>Leertaste</b> schlägt mit der Vorschau-Kraft (<b>↑/↓</b>) · <b>Rechtsklick/Esc</b> abbrechen · <b>M</b> Ton · <b>G</b> Magnet
     </div>
   </div>
 </section>
@@ -57,7 +57,7 @@
       <div>
         <h3>Bahnen <small class="muted">(Reihenfolge = Auswahlreihenfolge)</small></h3>
         <div id="mapPick" class="maplist"></div>
-        <div class="row"><button id="btnAllMaps" class="small">Alle</button><button id="btnNoMaps" class="small ghost">Keine</button><button id="btnRefreshMaps" class="small ghost">↻</button></div>
+        <div class="row" style="flex-wrap:wrap"><button id="btnAllMaps" class="small">Alle</button><button id="btnEasy" class="small ghost">+ Leicht</button><button id="btnMedium" class="small ghost">+ Mittel</button><button id="btnHard" class="small ghost hardbtn">+ Hart</button><button id="btnNoMaps" class="small ghost">Keine</button><button id="btnRefreshMaps" class="small ghost">↻</button></div>
       </div>
     </div>
   </div>
@@ -70,6 +70,8 @@
       <span id="hudHole"></span>
       <span id="hudMap"></span>
       <span id="hudPar"></span>
+      <span id="hudTurn"></span>
+      <span id="hudTimer"></span>
     </div>
     <div id="shotDots"></div>
     <span id="ultBadge" class="hidden">⚡ ULTIMATE BALL</span>
@@ -85,6 +87,7 @@
   <div id="toasts"></div>
   <div id="overlay" class="hidden"></div>
   <div id="ultBanner"><small>next BALL is</small><b>ULTIMATE BALL</b></div>
+  <button id="btnMagnet" class="hidden" title="Taste G">🧲 MAGNETISIEREN</button>
   <form id="chat"><div id="chatlog"></div><input id="chatIn" maxlength="200" placeholder="Chat (Enter)"></form>
 </section>
 

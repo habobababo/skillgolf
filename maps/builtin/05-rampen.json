@@ -3,6 +3,7 @@
  "width": 1200,
  "height": 800,
  "name": "Rampen",
+ "difficulty": "medium",
  "par": 4,
  "start": {
   "x": 100,

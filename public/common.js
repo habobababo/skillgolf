@@ -610,6 +610,8 @@
       [392, 523, 659, 784].forEach((f, i) => this.tone(f, 0.5, 'sawtooth', 0.06, f * 1.5, 0.05 + i * 0.06));
     }
     sling() { this.tone(300, 0.35, 'sawtooth', 0.08, 1400); this.tone(900, 0.2, 'sine', 0.12, 2400, 0.05); this.noise(0.25, 0.15, 3000, 800, 0, 'bandpass'); }
+    turn() { [660, 880, 1320].forEach((f, i) => this.tone(f, 0.18, 'triangle', 0.14, null, i * 0.08)); }
+    magnet() { this.tone(110, 0.9, 'sawtooth', 0.12, 220); this.tone(220, 0.9, 'square', 0.05, 440); this.noise(0.6, 0.12, 400, 2000, 0, 'bandpass'); }
     alarm() { [0, 0.22, 0.44].forEach((d) => { this.tone(880, 0.16, 'square', 0.09, 660, d); this.tone(1320, 0.12, 'sine', 0.06, null, d); }); }
     puck(v, m) { const vol = clamp(v / 1500, 0.04, 0.4); this.tone(clamp(420 / Math.pow(m, 0.35), 70, 600), 0.09 + Math.min(0.2, m * 0.012), 'triangle', vol, 60); this.noise(0.05, vol * 0.5, 1800, 300); }
     fanfare() { [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => { this.tone(f, 0.45, 'square', 0.07, null, i * 0.09); this.tone(f * 2, 0.3, 'triangle', 0.08, null, i * 0.09); }); }

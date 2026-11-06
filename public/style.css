@@ -117,3 +117,29 @@ table.score tr.win td { background: rgba(255,224,58,.12); color: #ffe03a; }
 #ultBadge.sling { border-color: #00eaff; text-shadow: 0 0 10px #00eaff; box-shadow: 0 0 16px rgba(0,234,255,.6); animation: none; }
 #ultBanner.sling b { font-size: 64px; background-image: linear-gradient(90deg, #00eaff, #3dff7a, #00eaff); filter: drop-shadow(0 0 14px #00eaff); }
 #ultBanner.sling small { font-size: 28px; }
+
+#hudTurn { font-size: 13px; color: #8f9ae0; }
+#hudTurn b.you { color: #fff; text-shadow: 0 0 10px #00eaff; letter-spacing: 1px; }
+#hudTimer { font-variant-numeric: tabular-nums; font-weight: 800; color: #00eaff; min-width: 38px; }
+#hudTimer.low { color: #ff3860; text-shadow: 0 0 10px #ff3860; animation: pulse 0.5s ease-in-out infinite alternate; }
+.bp.turn { box-shadow: inset 0 0 0 2px #00eaff, 0 0 16px rgba(0,234,255,.35); }
+#ultBanner.turn b { font-size: 84px; background-image: linear-gradient(90deg, #00eaff, #ffffff, #00eaff); filter: drop-shadow(0 0 16px #00eaff); }
+#btnMagnet { position: absolute; bottom: 26px; left: calc(50% - 115px); transform: translateX(-50%); padding: 14px 30px; font-size: 18px; font-weight: 900; letter-spacing: 3px; border-radius: 40px;
+  background: linear-gradient(90deg, rgba(255,224,58,.2), rgba(0,234,255,.2)); border: 2px solid #ffe03a; color: #fff; text-shadow: 0 0 10px #ffe03a; box-shadow: 0 0 24px rgba(255,224,58,.45); }
+#btnMagnet:hover:not(:disabled) { box-shadow: 0 0 40px rgba(255,224,58,.9); transform: translateX(-50%) scale(1.05); }
+#btnMagnet small { font-size: 13px; opacity: .8; margin-left: 6px; }
+#btnMagnet.active { border-color: #00eaff; text-shadow: 0 0 12px #00eaff; animation: magpulse 0.6s ease-in-out infinite alternate; }
+@keyframes magpulse { to { box-shadow: 0 0 44px rgba(0,234,255,.9); } }
+#btnMagnet:disabled { opacity: .55; cursor: default; }
+@media (max-width: 800px) { #btnMagnet { left: 50%; } }
+
+.diffhead { font-size: 12px; font-weight: 800; letter-spacing: 3px; padding: 10px 8px 4px; color: #8f9ae0; }
+.diffhead small { opacity: .6; font-weight: 400; }
+.diffhead.easy { color: #39ff8a; } .diffhead.medium { color: #ffe03a; }
+.diffhead.hard { color: #ff3860; text-shadow: 0 0 10px rgba(255,56,96,.7); border-top: 1px solid rgba(255,56,96,.35); margin-top: 6px; }
+.dtag { font-size: 9px; font-weight: 800; letter-spacing: 1px; padding: 1px 6px; border-radius: 6px; margin-left: 6px; vertical-align: middle; border: 1px solid; }
+.dtag.easy { color: #39ff8a; border-color: rgba(57,255,138,.5); }
+.dtag.medium { color: #ffe03a; border-color: rgba(255,224,58,.5); }
+.dtag.hard { color: #fff; background: #ff3860; border-color: #ff3860; box-shadow: 0 0 10px rgba(255,56,96,.7); }
+.hardbtn { border-color: rgba(255,56,96,.6); color: #ff8aa0; }
+table.score th.hardcol { color: #ff3860; }

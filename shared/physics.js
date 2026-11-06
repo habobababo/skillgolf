@@ -68,6 +68,14 @@
       steerTime: 2.5,
       steerAccel: 1800,
     },
+    turn: {
+      timeLimit: 45,       // Sekunden pro Zug, danach ist der nächste dran (0 = unbegrenzt)
+    },
+    magnet: {              // „MAGNETISIEREN“: wartende Spieler ziehen den Ball des Schützen an
+      usesPerHole: 2,      // Ladungen pro Spieler und Bahn
+      strength: 3200,      // Anziehung direkt am Magneten (px/s²), nimmt nach außen ab
+      radius: 420,         // Reichweite
+    },
     fps: 60,               // Bildrate im Browser (0 = unbegrenzt)
     holeEndDelay: 5.5,     // Sekunden Punktetabelle zwischen den Bahnen
     maxPlayers: 8,
@@ -112,6 +120,9 @@
     c.holeEndDelay = lim(c.holeEndDelay, 0, 60);
     c.maxPlayers = Math.round(lim(c.maxPlayers, 1, 32));
     c.fps = c.fps <= 0 ? 0 : Math.round(lim(c.fps, 15, 360));
+    c.turn.timeLimit = c.turn.timeLimit <= 0 ? 0 : lim(c.turn.timeLimit, 5, 600);
+    c.magnet.usesPerHole = Math.round(lim(c.magnet.usesPerHole, 0, 20));
+    c.magnet.radius = lim(c.magnet.radius, 20, 5000);
     c.pucks.count = Math.round(lim(c.pucks.count, 10, 60));
     for (const k of ['light', 'medium', 'heavy']) { c.pucks[k].mass = lim(c.pucks[k].mass, 0.05, 1000); c.pucks[k].radius = lim(c.pucks[k].radius, 4, 60); }
     c.pucks.ballMass = lim(c.pucks.ballMass, 0.05, 1000);
@@ -193,7 +204,15 @@
    * Liegende Gegnerbälle als feste Hindernisse hinzufügen.
    * balls: flaches Array [x1,y1,x2,y2,...]. Bälle, die den Schussstart überlappen (z. B. alle am Abschlag), werden ignoriert.
    */
-  function withBalls(cm, balls, sx, sy) {
+  function withBalls(cm, balls, sx, sy, magnets) {
+    const mags = [];
+    const minM = K.ballRadius * 2 + 0.5; // Magnet direkt am Schützen (z. B. beide am Abschlag) wirkt nicht
+    if (magnets) for (let i = 0; i + 1 < magnets.length; i += 2) {
+      const mx = magnets[i], my = magnets[i + 1];
+      if (sx != null && (mx - sx) * (mx - sx) + (my - sy) * (my - sy) < minM * minM) continue;
+      mags.push({ x: mx, y: my });
+    }
+    if (mags.length) cm = Object.assign({}, cm, { magnets: mags });
     if (!balls || !balls.length) return cm;
     const extra = [];
     const min = K.ballRadius * 2 + 0.5;
@@ -371,6 +390,13 @@
       const hx = cm.hole.x - s.x, hy = cm.hole.y - s.y, hd = Math.sqrt(hx * hx + hy * hy);
       if (hd < HOLE_R && hd > 1e-6) { ex += (hx / hd) * K.holePull; ey += (hy / hd) * K.holePull; }
       if (s.inputs && s.n * 2 + 1 < s.inputs.length) { ex += s.inputs[s.n * 2]; ey += s.inputs[s.n * 2 + 1]; }
+      if (cm.magnets) {
+        const MR = K.magnet.radius, MS = K.magnet.strength;
+        for (let i = 0; i < cm.magnets.length; i++) {
+          const mg = cm.magnets[i], mx = mg.x - s.x, my = mg.y - s.y, md = Math.sqrt(mx * mx + my * my);
+          if (md < MR && md > 1e-6) { const f = MS * (1 - md / MR); ex += mx / md * f; ey += my / md * f; }
+        }
+      }
       if (!applyForces(cm, s, 1, ex, ey)) { s.done = true; s.result = 'water'; }
       else maxSp = s._sp;
     }
@@ -520,6 +546,7 @@
       name: str(m.name, 'Unbenannt', 40),
       author: str(m.author, 'Anonym', 30),
       par: Math.max(1, Math.min(7, Math.round(num(m.par, 3)))),
+      difficulty: ['easy', 'medium', 'hard'].includes(m.difficulty) ? m.difficulty : 'medium',
       width: W, height: H,
       start: { x: num(m.start && m.start.x, 100), y: num(m.start && m.start.y, H / 2) },
       hole: { x: num(m.hole && m.hole.x, W - 100), y: num(m.hole && m.hole.y, H / 2) },

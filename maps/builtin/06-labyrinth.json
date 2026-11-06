@@ -3,6 +3,7 @@
  "width": 1200,
  "height": 800,
  "name": "Labyrinth",
+ "difficulty": "medium",
  "par": 5,
  "start": {
   "x": 125,

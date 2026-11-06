@@ -50,6 +50,8 @@
         break;
       case 'shot': onShot(m); break;
       case 'shotEnd': onShotEnd(m); break;
+      case 'turn': onTurn(m.id); break;
+      case 'magnet': onMagnet(m.id); break;
       case 'ultInput': { const a = anims.get(m.id); if (a && a.ult && !a.local) a.addInputs(m.inputs); break; }
       case 'holeEnd': showScoreTable(false); break;
       case 'finished': showScoreTable(true); break;
@@ -64,7 +66,9 @@
     renderHud(); renderBoard();
   }
 
+  let turnDeadline = 0;
   function onRoom(r) {
+    turnDeadline = r.turnLeft ? performance.now() + r.turnLeft : 0;
     const prevPhase = room && room.phase;
     // laufende Animationen behalten Vorrang vor Server-Positionen
     room = r;
@@ -82,11 +86,14 @@
     if (m.id === myId) awaiting = false;
     const mode = m.mode || (m.ult ? 'ult' : null);
     const ult = !!mode;
-    const a = new S.BallAnim(P.withBalls(cm, m.others, m.from.x, m.from.y), m.from, m.vx, m.vy, m.end, m.result,
+    const a = new S.BallAnim(P.withBalls(cm, m.others, m.from.x, m.from.y, m.magnets), m.from, m.vx, m.vy, m.end, m.result,
       { pucks: m.pucks0, mode, local: ult && m.id === myId });
     a.player = p; a.final = ult ? null : m; a.born = performance.now();
     anims.set(m.id, a);
     p.shots = m.shots;
+    if (room) room.inFlight = true;
+    for (const q of room.players) q.magnet = false; // Magnet wirkt nur für diesen Schlag
+    turnDeadline = 0;
     if (ult) {
       ultBy = m.id;
       if (mode === 'ult') p.ultUsed = true;
@@ -123,11 +130,6 @@
       if (mine) toast('💦 Wasser! Zurück zur letzten Position');
       if (mine && m.done) toast(`Keine Schläge mehr – ${P.MISS_SCORE} Punkte`);
     } else if (mine && m.done) toast(`Keine Schläge mehr – ${P.MISS_SCORE} Punkte`);
-    const nm = nextMode(p);
-    if (nm) {
-      const name = nm === 'ult' ? 'ULTIMATE BALL' : 'SLING BALL';
-      if (mine) ultBanner(nm); else if (nm === 'ult') toast(`${p.name}: next BALL is ${name}`);
-    }
     renderBoard(); renderHud();
   }
 
@@ -136,13 +138,41 @@
   function ultimateNext(p) { return nextMode(p) === 'ult'; }
 
   let bannerTimer = null;
-  function ultBanner(mode) {
-    const b = $('ultBanner'), sl = mode === 'sling';
-    b.querySelector('b').textContent = sl ? 'SLING BALL' : 'ULTIMATE BALL';
-    b.classList.toggle('sling', sl);
+  /** große Meldung: „DU BIST DRAN“ (+ ggf. „next BALL is …“) */
+  function banner(main, top, kind) {
+    const b = $('ultBanner');
+    b.querySelector('small').textContent = top || '';
+    b.querySelector('b').textContent = main;
+    b.classList.toggle('sling', kind === 'sling');
+    b.classList.toggle('turn', kind === 'turn');
     b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
-    if (sl) { sfx.sling(); fx.screen(0.3, '0,234,255'); } else { sfx.alarm(); fx.screen(0.5, '255,46,136'); fx.shake(6); }
     clearTimeout(bannerTimer); bannerTimer = setTimeout(() => b.classList.remove('show'), 3200);
+  }
+
+  /** Zugwechsel */
+  function onTurn(id) {
+    if (!room) return;
+    room.turnId = id; room.inFlight = false;
+    for (const q of room.players) q.magnet = false;
+    const p = room.players.find((x) => x.id === id);
+    if (id === myId) {
+      const nm = nextMode(me());
+      if (nm === 'ult') { banner('ULTIMATE BALL', 'DU BIST DRAN · next BALL is', 'ult'); sfx.alarm(); fx.screen(0.5, '255,46,136'); fx.shake(6); }
+      else if (nm === 'sling') { banner('SLING BALL', 'DU BIST DRAN · next BALL is', 'sling'); sfx.sling(); fx.screen(0.3, '0,234,255'); }
+      else { banner('DU BIST DRAN', '', 'turn'); sfx.turn(); fx.screen(0.25, '0,234,255'); }
+    } else if (p) toast(`${p.name} ist dran`);
+    renderHud(); renderBoard();
+  }
+
+  function onMagnet(id) {
+    const p = room && room.players.find((x) => x.id === id);
+    if (!p) return;
+    p.magnet = true; p.magnetLeft = Math.max(0, (p.magnetLeft || 0) - 1);
+    if (p.ball) { fx.ring(p.ball.x, p.ball.y, '#ffe03a', P.config.magnet.radius, 0.8, 4); fx.ring(p.ball.x, p.ball.y, '#00eaff', P.config.magnet.radius * 0.6, 0.6, 3); }
+    sfx.magnet();
+    if (room.turnId === myId) toast(`🧲 ${p.name} hat MAGNETISIERT!`, true);
+    else toast(`🧲 ${p.name} magnetisiert`);
+    renderHud(); renderBoard();
   }
 
   // ------------------------------------------------------------ Bildschirme
@@ -261,28 +291,40 @@
     const host = isHost();
     $('btnStart').classList.toggle('hidden', !host);
     $('waitHost').classList.toggle('hidden', host);
-    for (const b of ['btnAllMaps', 'btnNoMaps']) $(b).classList.toggle('hidden', !host);
+    for (const b of ['btnAllMaps', 'btnNoMaps', 'btnEasy', 'btnMedium', 'btnHard']) $(b).classList.toggle('hidden', !host);
     $('btnStart').disabled = !room.playlist.length;
 
     const box = $('mapPick'); box.innerHTML = '';
     const order = room.playlist.map((e) => e.id);
-    const list = host ? allMaps : order.map((id) => allMaps.find((m) => m.id === id) || room.playlist.find((e) => e.id === id));
-    for (const m of list) {
-      if (!m) continue;
-      const idx = order.indexOf(m.id);
-      const d = document.createElement('div');
-      d.className = 'mapitem' + (idx >= 0 ? ' sel' : '') + (host ? '' : ' locked');
-      d.innerHTML = `<span class="num">${idx >= 0 ? idx + 1 : ''}</span><span class="nm"></span><span class="meta">Par ${m.par}<br></span>`;
-      d.querySelector('.nm').textContent = m.name;
-      if (m.kind === 'custom') { const t = document.createElement('span'); t.className = 'tag'; t.textContent = 'eigene'; d.querySelector('.nm').appendChild(t); }
-      if (m.author) d.querySelector('.meta').appendChild(document.createTextNode('von ' + m.author));
-      if (host) d.onclick = () => {
-        const ids = order.slice();
-        const i = ids.indexOf(m.id);
-        if (i >= 0) ids.splice(i, 1); else ids.push(m.id);
-        send({ type: 'playlist', ids });
-      };
-      box.appendChild(d);
+    const list = (host ? allMaps : order.map((id) => allMaps.find((m) => m.id === id) || room.playlist.find((e) => e.id === id))).filter(Boolean);
+    // nach Schwierigkeit gruppieren (Host); Gäste sehen die Playlist in Reihenfolge
+    const groups = host ? ['easy', 'medium', 'hard'].map((d) => [d, list.filter((m) => (m.difficulty || 'medium') === d)]) : [[null, list]];
+    for (const [d, items] of groups) {
+      if (!items.length) continue;
+      if (d) {
+        const hd = document.createElement('div');
+        hd.className = 'diffhead ' + d;
+        hd.innerHTML = `${DIFF_LABEL[d]} <small>${items.length}</small>`;
+        box.appendChild(hd);
+      }
+      for (const m of items) {
+        const idx = order.indexOf(m.id);
+        const el = document.createElement('div');
+        el.className = 'mapitem' + (idx >= 0 ? ' sel' : '') + (host ? '' : ' locked');
+        el.innerHTML = `<span class="num">${idx >= 0 ? idx + 1 : ''}</span><span class="nm"></span><span class="meta">Par ${m.par}<br></span>`;
+        el.querySelector('.nm').textContent = m.name;
+        const diff = m.difficulty || 'medium';
+        const dt = document.createElement('span'); dt.className = 'dtag ' + diff; dt.textContent = DIFF_LABEL[diff]; el.querySelector('.nm').appendChild(dt);
+        if (m.kind === 'custom') { const tg = document.createElement('span'); tg.className = 'tag'; tg.textContent = 'eigene'; el.querySelector('.nm').appendChild(tg); }
+        if (m.author) el.querySelector('.meta').appendChild(document.createTextNode('von ' + m.author));
+        if (host) el.onclick = () => {
+          const ids = order.slice();
+          const i = ids.indexOf(m.id);
+          if (i >= 0) ids.splice(i, 1); else ids.push(m.id);
+          send({ type: 'playlist', ids });
+        };
+        box.appendChild(el);
+      }
     }
     if (!list.length) box.innerHTML = '<p class="muted">Keine Bahnen ausgewählt</p>';
   }
@@ -301,6 +343,14 @@
   };
   $('btnAllMaps').onclick = () => send({ type: 'playlist', ids: allMaps.map((m) => m.id) });
   $('btnNoMaps').onclick = () => send({ type: 'playlist', ids: [] });
+  const addDiff = (d) => {
+    const ids = room.playlist.map((e) => e.id);
+    for (const m of allMaps) if ((m.difficulty || 'medium') === d && !ids.includes(m.id)) ids.push(m.id);
+    send({ type: 'playlist', ids });
+  };
+  $('btnEasy').onclick = () => addDiff('easy');
+  $('btnMedium').onclick = () => addDiff('medium');
+  $('btnHard').onclick = () => addDiff('hard');
   $('btnRefreshMaps').onclick = loadMapList;
 
   // ------------------------------------------------------------ Spiel-HUD
@@ -310,7 +360,7 @@
   function renderHud() {
     if (!room || !map) return;
     $('hudHole').textContent = `Bahn ${room.holeIndex + 1}/${room.playlist.length}`;
-    $('hudMap').textContent = map.name;
+    $('hudMap').innerHTML = esc(map.name) + (map.difficulty === 'hard' ? ' <span class="dtag hard">HART</span>' : '');
     $('hudPar').textContent = `Par ${map.par}` + (map.author ? ` · von ${map.author}` : '');
     $('btnSkip').classList.toggle('hidden', !isHost());
     const p = me();
@@ -318,11 +368,29 @@
     const un = P.config.ultimate.afterShots;
     const sl = P.config.sling;
     $('shotDots').innerHTML = Array.from({ length: P.MAX_SHOTS }, (_, i) => `<i class="${i < used ? 'used' : ''}${un > 0 && i === un ? ' ult' : ''}${sl.steerTime > 0 && sl.shots.includes(i + 1) ? ' sling' : ''}" title="Schlag ${i + 1}"></i>`).join('');
+    const tp = room.players.find((x) => x.id === room.turnId);
+    $('hudTurn').innerHTML = room.phase !== 'playing' ? '' : !tp ? '' : tp.id === myId ? '<b class="you">DU BIST DRAN</b>' : `Am Zug: <b style="color:${tp.color}">${esc(tp.name)}</b>`;
+    updateMagnetBtn();
     const nm = nextMode(p);
     $('ultBadge').classList.toggle('hidden', !nm);
     $('ultBadge').classList.toggle('sling', nm === 'sling');
     $('ultBadge').textContent = nm === 'sling' ? '🌀 SLING BALL' : '⚡ ULTIMATE BALL';
   }
+
+  function updateMagnetBtn() {
+    const p = me(), b = $('btnMagnet');
+    const show = room && room.phase === 'playing' && p && p.ball && !p.sunk && room.turnId != null && room.turnId !== myId && P.config.magnet.usesPerHole > 0;
+    b.classList.toggle('hidden', !show);
+    if (!show) return;
+    const left = p.magnetLeft || 0;
+    const tp = room.players.find((x) => x.id === room.turnId);
+    const close = tp && tp.ball && Math.hypot(tp.ball.x - p.ball.x, tp.ball.y - p.ball.y) < P.BALL_R * 2 + 0.5;
+    b.classList.toggle('active', !!p.magnet);
+    b.disabled = !!p.magnet || left <= 0 || !!room.inFlight || close;
+    b.innerHTML = p.magnet ? '🧲 MAGNET AKTIV' : close ? '🧲 MAGNETISIEREN <small>zu nah</small>' : `🧲 MAGNETISIEREN <small>${left}×</small>`;
+  }
+  $('btnMagnet').onclick = () => { send({ type: 'magnet' }); $('btnMagnet').blur(); };
+  window.addEventListener('keydown', (e) => { if (e.code === 'KeyG' && document.activeElement.tagName !== 'INPUT' && !$('btnMagnet').classList.contains('hidden') && !$('btnMagnet').disabled) $('btnMagnet').click(); });
 
   function total(p) { return p.scores.reduce((a, b) => a + (b || 0), 0); }
   function parSum(n) { let s = 0; for (let i = 0; i < n; i++) s += (room.playlist[i] && room.playlist[i].par) || 0; return s; }
@@ -340,10 +408,15 @@
       if (room.phase === 'lobby') st = '';
       else if (p.done && !rolling) st = p.sunk ? `⛳ eingelocht mit <b>${p.shots}</b>` : `✖ <b>${P.MISS_SCORE}</b> Punkte`;
       else st = rolling ? 'rollt …' : `Schlag <b>${p.shots + 1}</b> / ${P.MAX_SHOTS}`;
-      h += `<div class="bp ${p.id === myId ? 'me' : ''}"><div class="top">${avatarHtml(p)}<span class="nm">${esc(p.name)}</span>${p.id === room.hostId ? '👑' : ''}<span class="tot">${total(p)}</span></div><div class="st">${st}</div></div>`;
+      const turn = room.phase === 'playing' && room.turnId === p.id;
+      if (turn && !(p.done && !rolling)) st = (rolling ? 'rollt …' : '▶ <b>am Zug</b>') + ` · Schlag ${p.shots + (rolling ? 0 : 1)}/${P.MAX_SHOTS}`;
+      if (p.magnet) st += ' · <b style="color:#ffe03a">🧲 Magnet</b>';
+      else if (room.phase === 'playing' && !p.done && P.config.magnet.usesPerHole > 0) st += ` · 🧲${p.magnetLeft || 0}`;
+      h += `<div class="bp ${p.id === myId ? 'me' : ''} ${turn ? 'turn' : ''}"><div class="top">${avatarHtml(p)}<span class="nm">${esc(p.name)}</span>${p.id === room.hostId ? '👑' : ''}<span class="tot">${total(p)}</span></div><div class="st">${st}</div></div>`;
     }
     b.innerHTML = h + (room.phase === 'lobby' ? '' : legend);
   }
+  const DIFF_LABEL = { easy: 'LEICHT', medium: 'MITTEL', hard: 'HART' };
   function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
   function showScoreTable(final) {
@@ -352,7 +425,7 @@
     const ps = room.players.slice().sort((a, c) => total(a) - total(c));
     let h = `<div class="card"><h2>${final ? '🏆 Endstand' : `Bahn ${room.holeIndex + 1} beendet`}</h2>`;
     h += '<table class="score"><tr><th>Spieler</th>';
-    for (let i = 0; i < n; i++) h += `<th title="${esc(room.playlist[i].name)}">${i + 1}</th>`;
+    for (let i = 0; i < n; i++) h += `<th title="${esc(room.playlist[i].name)}" class="${room.playlist[i].difficulty === 'hard' ? 'hardcol' : ''}">${i + 1}</th>`;
     h += '<th>Σ</th><th>±Par</th></tr><tr class="muted"><td>Par</td>';
     for (let i = 0; i < n; i++) h += `<td>${room.playlist[i].par}</td>`;
     h += `<td>${parSum(n)}</td><td></td></tr>`;
@@ -388,6 +461,7 @@
     canShoot: () => {
       const p = me();
       if (!room || room.phase !== 'playing' || !p || p.done || awaiting || !cm || ultBy) return false;
+      if (room.turnId !== myId || room.inFlight) return false;
       const a = anims.get(myId);
       return !(a && !a.done);
     },
@@ -405,9 +479,11 @@
   function cmForMe(mine) {
     const others = [];
     for (const q of room.players) if (q.id !== myId && q.ball && !q.sunk) others.push(q.ball.x, q.ball.y);
-    const key = others.join(',') + '|' + mine.ball.x + ',' + mine.ball.y;
+    const mags = [];
+    for (const q of room.players) if (q.id !== myId && q.magnet && q.ball && !q.sunk) mags.push(q.ball.x, q.ball.y);
+    const key = others.join(',') + '|' + mags.join(',') + '|' + mine.ball.x + ',' + mine.ball.y;
     if (key !== shotCmKey || !shotCm || shotCm.base !== cm) {
-      shotCm = P.withBalls(cm, others, mine.ball.x, mine.ball.y);
+      shotCm = P.withBalls(cm, others, mine.ball.x, mine.ball.y, mags);
       shotCm.base = cm; shotCmKey = key;
     }
     return shotCm;
@@ -484,6 +560,23 @@
       let live = null;
       for (const [, a] of anims) if (!a.done && (!live || a.born > live.born)) live = a;
       S.drawPucks(ctx, live ? live.pucks : pucks, t);
+      // Magnetfelder
+      for (const p of room.players) {
+        if (!p.magnet || !p.ball || p.sunk) continue;
+        const R = P.config.magnet.radius;
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 4; i++) {
+          const f = ((t * 0.6 + i / 4) % 1), rr = R * (1 - f);
+          ctx.strokeStyle = i % 2 ? '#ffe03a' : '#00eaff'; ctx.globalAlpha = 0.35 * f; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(p.ball.x, p.ball.y, rr, 0, 7); ctx.stroke();
+        }
+        ctx.globalAlpha = 0.12; ctx.fillStyle = '#ffe03a'; ctx.beginPath(); ctx.arc(p.ball.x, p.ball.y, R, 0, 7); ctx.fill();
+        ctx.restore();
+        if (Math.random() < 0.6) {
+          const a = Math.random() * Math.PI * 2, d = R * (0.5 + Math.random() * 0.5);
+          fx.parts.push({ x: p.ball.x + Math.cos(a) * d, y: p.ball.y + Math.sin(a) * d, vx: 0, vy: 0, t: 0, life: 0.8, color: Math.random() < 0.5 ? '#ffe03a' : '#00eaff', size: 1.6, drag: 0, kind: 'dot', pull: { x: p.ball.x, y: p.ball.y, k: 900 } });
+        }
+      }
       const ordered = room.players.slice().sort((a, b) => (a.id === myId) - (b.id === myId));
       for (const p of ordered) {
         if (!p.ball) continue;
@@ -516,6 +609,11 @@
       fx.draw(ctx);
       for (const [, a] of anims) if (a.steering) S.drawUltOverlay(ctx, view, a, a.local ? ctrl.mouse : null, t);
       fx.drawScreen(ctx, canvas.width, canvas.height);
+      if (turnDeadline) {
+        const left = Math.max(0, Math.ceil((turnDeadline - performance.now()) / 1000));
+        const el = $('hudTimer'); const txt = left + ' s';
+        if (el.textContent !== txt) { el.textContent = txt; el.classList.toggle('low', left <= 10); }
+      } else if ($('hudTimer').textContent) $('hudTimer').textContent = '';
       const pw = ctrl.dragging ? ctrl.power : ctrl.lastPower;
       $('hudPower').textContent = ctrl.enabled ? `Kraft ${(pw * 100).toFixed(0)} % · Winkel ${((ctrl.angle * 180 / Math.PI + 360) % 360).toFixed(1)}°` : '';
     }

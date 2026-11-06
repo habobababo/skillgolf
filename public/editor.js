@@ -28,7 +28,7 @@
   let testing = null;      // Test-Modus-Zustand
 
   function blankMap() {
-    return { name: 'Neue Bahn', author: localStorage.getItem('skillshot.name') || 'Anonym', par: 3, width: 1200, height: 800, start: { x: 120, y: 400 }, hole: { x: 1080, y: 400 }, objects: [] };
+    return { name: 'Neue Bahn', difficulty: 'medium', author: localStorage.getItem('skillshot.name') || 'Anonym', par: 3, width: 1200, height: 800, start: { x: 120, y: 400 }, hole: { x: 1080, y: 400 }, objects: [] };
   }
 
   // ------------------------------------------------------------ Toast
@@ -253,9 +253,9 @@
     });
   }
   bindMapField('mName', 'name'); bindMapField('mAuthor', 'author');
-  bindMapField('mPar', 'par', true); bindMapField('mW', 'width', true); bindMapField('mH', 'height', true);
+  bindMapField('mPar', 'par', true); bindMapField('mDiff', 'difficulty'); bindMapField('mW', 'width', true); bindMapField('mH', 'height', true);
   function renderMapProps() {
-    $('mName').value = map.name; $('mAuthor').value = map.author; $('mPar').value = map.par;
+    $('mName').value = map.name; $('mAuthor').value = map.author; $('mPar').value = map.par; $('mDiff').value = map.difficulty || 'medium';
     $('mW').value = map.width; $('mH').value = map.height;
   }
 
@@ -321,7 +321,7 @@
     const sel = $('loadSel');
     try {
       const list = await (await fetch('/api/maps')).json();
-      sel.innerHTML = '<option value="">Map laden …</option>' + list.map((m) => `<option value="${m.id}">${m.kind === 'custom' ? '★ ' : ''}${escapeHtml(m.name)} (Par ${m.par})</option>`).join('');
+      sel.innerHTML = '<option value="">Map laden …</option>' + list.map((m) => `<option value="${m.id}">${m.kind === 'custom' ? '★ ' : ''}${escapeHtml(m.name)} (Par ${m.par}${m.difficulty === 'hard' ? ' · HART' : m.difficulty === 'easy' ? ' · leicht' : ''})</option>`).join('');
       return list;
     } catch { return []; }
   }

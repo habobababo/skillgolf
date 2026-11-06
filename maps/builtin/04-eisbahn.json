@@ -3,6 +3,7 @@
  "width": 1200,
  "height": 800,
  "name": "Eisbahn",
+ "difficulty": "medium",
  "par": 3,
  "start": {
   "x": 100,
