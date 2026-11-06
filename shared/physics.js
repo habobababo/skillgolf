@@ -11,8 +11,8 @@
   const BALL_R = 8;
   const HOLE_R = 14;
   const DT = 1 / 120;
-  const MAX_SPEED = 1600;      // Abschussgeschwindigkeit bei 100 %
-  const SPEED_CAP = 2600;      // absolute Obergrenze
+  const MAX_SPEED = 3400;      // Abschussgeschwindigkeit bei 100 %
+  const SPEED_CAP = 5000;      // absolute Obergrenze
   const MAX_SHOTS = 7;
   const CAPTURE_SPEED = 560;   // langsamer als das -> fällt ins Loch
   const STOP_SPEED = 5;

@@ -86,6 +86,17 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, { ok: true });
   }
 
+  if (p === '/api/avatars') {
+    // Standard-Profilbilder pro Spielerplatz: public/avatars/player<N>.<jpg|jpeg|png|webp>
+    const out = {};
+    try {
+      for (const f of fs.readdirSync(path.join(PUBLIC, 'avatars'))) {
+        const m = /^player([1-8])\.(jpe?g|png|webp)$/i.exec(f);
+        if (m) out[m[1]] = '/avatars/' + encodeURIComponent(f);
+      }
+    } catch { /* Ordner fehlt */ }
+    return sendJson(res, 200, out);
+  }
   if (p.startsWith('/shared/')) return serveFile(res, SHARED, p.slice(8));
   if (p === '/' ) return serveFile(res, PUBLIC, 'index.html');
   if (p === '/editor') return serveFile(res, PUBLIC, 'editor.html');

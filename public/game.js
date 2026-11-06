@@ -126,13 +126,13 @@
     if (!i) { i = new Image(); i.src = url; imgCache.set(url, i); }
     return i;
   }
-  // Standardbild für Spieler 2 (public/avatars/player2.jpg), falls vorhanden
-  let p2Default = null;
-  { const t = new Image(); t.onload = () => { p2Default = t.src; imgCache.set(t.src, t); }; t.src = '/avatars/player2.jpg'; }
+  // Standardbilder pro Platz: public/avatars/player1..8.(jpg|jpeg|png|webp)
+  let slotAvatars = {};
+  fetch('/api/avatars').then((r) => r.json()).then((a) => { slotAvatars = a || {}; renderBoard(); renderLobby(); }).catch(() => {});
   function avatarOf(p) {
     if (p.avatar) return p.avatar;
-    if (p2Default && room && room.players.indexOf(p) === 1) return p2Default;
-    return null;
+    const i = room ? room.players.indexOf(p) : -1;
+    return i >= 0 ? slotAvatars[i + 1] || null : null;
   }
   function avatarHtml(p) {
     const a = avatarOf(p);
@@ -361,7 +361,6 @@
     }
   }
 
-  const rot = new Map(); // Drehwinkel der Profilbild-Bälle
   const SPAWN_FADE = 5; // Sekunden, die ein Schweif nach dem Stillstand nachleuchtet
   let last = performance.now();
   function frame(now) {
@@ -390,8 +389,7 @@
         const a = anims.get(p.id);
         if (p.done && p.sunk && !(a && !a.done)) continue; // im Loch
         const pos = ballPos(p);
-        if (a && !a.done) rot.set(p.id, (rot.get(p.id) || 0) + a.speed * dt / (P.BALL_R * 2.5));
-        S.drawBall(ctx, pos.x, pos.y, p.color, p.id === myId ? null : p.name, p.id === myId ? 1 : 0.85, img(avatarOf(p)), rot.get(p.id) || 0);
+        S.drawBall(ctx, pos.x, pos.y, p.color, p.id === myId ? null : p.name, p.id === myId ? 1 : 0.85, img(avatarOf(p)));
       }
       if (mine && mine.ball) {
         ctrl.update(dt, mine.ball);

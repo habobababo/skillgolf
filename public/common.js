@@ -7,7 +7,7 @@
     wall: '#2ef2ff', block: '#8a5cff', bumper: '#ff2e88', sand: '#ffb02e', ice: '#a6fbff',
     water: '#2f7bff', slope: '#39ff8a', boost: '#ffe600', hole: '#ffffff',
   };
-  const MAX_DRAG = 260; // CSS-Pixel Ziehweg für 100 % Kraft
+  const MAX_DRAG = 320; // CSS-Pixel Ziehweg für 100 % Kraft
 
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
   function hash(n) { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); }
@@ -274,7 +274,7 @@
   // ------------------------------------------------------------ Bälle & Schweife
   function drawBall(ctx, x, y, color, label, alpha, img, rot) {
     const hasImg = img && img.complete && img.naturalWidth > 0;
-    const r = P.BALL_R * (hasImg ? 1.6 : 1);
+    const r = P.BALL_R * (hasImg ? 2.2 : 1);
     ctx.save(); ctx.globalAlpha = alpha == null ? 1 : alpha;
     ctx.globalCompositeOperation = 'lighter';
     const g = ctx.createRadialGradient(x, y, r * 0.4, x, y, r * 3.2);
@@ -285,7 +285,7 @@
     ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
     if (hasImg) {
       ctx.save(); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.clip();
-      ctx.translate(x, y); ctx.rotate(rot || 0); ctx.drawImage(img, -r, -r, r * 2, r * 2);
+      ctx.drawImage(img, x - r, y - r, r * 2, r * 2); // Kopf bleibt aufrecht
       ctx.restore();
     }
     ctx.strokeStyle = color; ctx.lineWidth = hasImg ? 2.5 : 3; glow(ctx, color, 14);
@@ -520,7 +520,7 @@
   // ------------------------------------------------------------ Schuss-Steuerung (Ziehen = Kraft)
   /**
    * Klicken setzt einen Ankerpunkt; Ziehen weg davon bestimmt die Kraft (Distanz) und die Richtung
-   * (entgegengesetzt zum Zug – wie eine Schleuder). Loslassen schlägt.
+   * (in Zugrichtung). Loslassen schlägt.
    * Ohne Ziehen: Maus zeigt eine Vorschau mit der letzten Kraft; Leertaste schlägt damit.
    * ←/→ Feinjustierung (Shift = grob), ↑/↓ Vorschau-Kraft, Rechtsklick/Esc bricht ab.
    */
@@ -590,7 +590,8 @@
       if (!ball) return;
       if (this.dragging) {
         if (!this.enabled) { this.cancel(); return; }
-        const dx = this.anchor.x - this.cur.x, dy = this.anchor.y - this.cur.y, d = Math.hypot(dx, dy);
+        // Ball fliegt in Zugrichtung (Weltkoordinaten: rechts = rechts, oben = oben)
+        const dx = this.cur.x - this.anchor.x, dy = this.cur.y - this.anchor.y, d = Math.hypot(dx, dy);
         this.power = clamp(d / MAX_DRAG, 0, 1);
         if (d > 6) this.angle = Math.atan2(dy, dx) + this.angleOff;
         if (this.sfx) this.sfx.tension(this.power);
