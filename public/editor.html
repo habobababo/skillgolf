@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⛳</text></svg>">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skillshot – Map-Editor</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="editor.css">
+</head>
+<body>
+<header id="etop">
+  <a href="/" class="elogo">SKILL<span>SHOT</span> <small>Editor</small></a>
+  <button id="bNew" class="small ghost">Neu</button>
+  <select id="loadSel"><option value="">Map laden …</option></select>
+  <button id="bSave" class="small primary">💾 Auf Server speichern</button>
+  <button id="bExport" class="small ghost">Export JSON</button>
+  <button id="bImport" class="small ghost">Import JSON</button>
+  <input type="file" id="fileIn" accept=".json,application/json" class="hidden">
+  <button id="bUndo" class="small ghost" title="Strg+Z">↶</button>
+  <button id="bRedo" class="small ghost" title="Strg+Y">↷</button>
+  <label class="inl"><input type="checkbox" id="snap" checked> Raster</label>
+  <select id="gridSize"><option>5</option><option selected>10</option><option>20</option><option>40</option></select>
+  <span class="spacer"></span>
+  <button id="bTest" class="small">▶ Testen</button>
+</header>
+
+<nav id="tools"></nav>
+
+<main id="ewrap"><canvas id="ecv"></canvas><div id="testInfo" class="hidden"></div></main>
+
+<aside id="props">
+  <h3>Map</h3>
+  <label>Name <input id="mName" maxlength="40"></label>
+  <label>Autor <input id="mAuthor" maxlength="30"></label>
+  <div class="grid2">
+    <label>Par <input id="mPar" type="number" min="1" max="7"></label>
+    <label>&nbsp;</label>
+    <label>Breite <input id="mW" type="number" min="300" max="4000" step="50"></label>
+    <label>Höhe <input id="mH" type="number" min="300" max="4000" step="50"></label>
+  </div>
+  <h3>Auswahl</h3>
+  <div id="selProps"><p class="muted">Nichts ausgewählt</p></div>
+  <h3>Hilfe</h3>
+  <div class="muted small">
+    <b>Auswahl (V)</b>: Klicken/Ziehen verschiebt, Griffe ändern die Größe · <b>Entf</b> löscht · <b>Strg+D</b> dupliziert · <b>Shift+Klick</b> hebt die Rasterung auf.<br>
+    Rechtecke & Wände: aufziehen. Bumper: klicken (ziehen = Radius). Rechtsklick löscht ein Objekt.<br>
+    <b>Testen</b>: Bahn mit voller Flugbahn-Vorschau spielen, <b>Esc</b> beendet den Test.
+  </div>
+</aside>
+
+<script src="/shared/physics.js"></script>
+<script src="common.js"></script>
+<script src="editor.js"></script>
+</body>
+</html>

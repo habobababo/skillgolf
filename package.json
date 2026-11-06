@@ -1,0 +1,9 @@
+{
+  "name": "skillshot",
+  "version": "1.0.0",
+  "description": "Multiplayer Minigolf im Browser mit Map-Editor",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "license": "MIT",
+  "dependencies": { "ws": "^8.18.0" }
+}

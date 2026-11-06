@@ -1,0 +1,38 @@
+{
+ "author": "Skillshot",
+ "width": 1200,
+ "height": 800,
+ "name": "Erste Schritte",
+ "par": 2,
+ "start": {
+  "x": 120,
+  "y": 625
+ },
+ "hole": {
+  "x": 1000,
+  "y": 200
+ },
+ "objects": [
+  {
+   "type": "block",
+   "x": 0,
+   "y": 0,
+   "w": 800,
+   "h": 450
+  },
+  {
+   "type": "wall",
+   "x1": 1060,
+   "y1": 800,
+   "x2": 1200,
+   "y2": 660,
+   "t": 14
+  },
+  {
+   "type": "bumper",
+   "x": 1000,
+   "y": 560,
+   "r": 20
+  }
+ ]
+}

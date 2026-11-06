@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⛳</text></svg>">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skillshot – Multiplayer Minigolf</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Startmenü -->
+<section id="menu" class="screen active">
+  <div class="card hero">
+    <h1 class="logo">SKILL<span>SHOT</span></h1>
+    <p class="sub">Multiplayer-Minigolf · 7 Schläge pro Bahn</p>
+    <label>Dein Name <input id="name" maxlength="16" placeholder="Spieler"></label>
+    <button id="btnCreate" class="primary">Raum erstellen</button>
+    <div class="row">
+      <input id="joinCode" maxlength="4" placeholder="CODE" class="code">
+      <button id="btnJoin">Beitreten</button>
+    </div>
+    <a class="link" href="/editor">🛠 Map-Editor öffnen</a>
+    <div class="help">
+      <b>Steuerung:</b> Maus zielt · <b>Linke Maustaste / Leertaste halten</b> lädt den Schlag auf (pendelt 0→100→0 %) · loslassen schlägt ·
+      <b>←/→</b> Feinjustierung (Shift = grob) · <b>↑/↓</b> Vorschau-Stärke · <b>Rechtsklick/Esc</b> abbrechen
+    </div>
+  </div>
+</section>
+
+<!-- Lobby -->
+<section id="lobby" class="screen">
+  <div class="card wide">
+    <div class="lobbyhead">
+      <h2>Raum <span id="lobbyCode" class="codebadge"></span></h2>
+      <button id="btnCopy" class="small">Link kopieren</button>
+      <button id="btnLeave" class="small ghost">Verlassen</button>
+    </div>
+    <div class="cols">
+      <div>
+        <h3>Spieler</h3>
+        <ul id="lobbyPlayers" class="plist"></ul>
+        <h3>Einstellungen</h3>
+        <label>Flugbahn-Vorschau
+          <select id="setPreview">
+            <option value="full">Komplett (bis Stillstand)</option>
+            <option value="long">Lang (4 s)</option>
+            <option value="medium">Mittel (1,6 s)</option>
+            <option value="short">Kurz (0,5 s)</option>
+            <option value="off">Aus</option>
+          </select>
+        </label>
+        <button id="btnStart" class="primary">Spiel starten</button>
+        <p id="waitHost" class="muted">Warte auf den Host …</p>
+      </div>
+      <div>
+        <h3>Bahnen <small class="muted">(Reihenfolge = Auswahlreihenfolge)</small></h3>
+        <div id="mapPick" class="maplist"></div>
+        <div class="row"><button id="btnAllMaps" class="small">Alle</button><button id="btnNoMaps" class="small ghost">Keine</button><button id="btnRefreshMaps" class="small ghost">↻</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Spiel -->
+<section id="game" class="screen">
+  <div id="hud">
+    <div class="hudleft">
+      <span id="hudHole"></span>
+      <span id="hudMap"></span>
+      <span id="hudPar"></span>
+    </div>
+    <div id="shotDots"></div>
+    <div class="hudright">
+      <span id="hudPower"></span>
+      <button id="btnSkip" class="small ghost">Bahn überspringen</button>
+      <button id="btnQuit" class="small ghost">Verlassen</button>
+    </div>
+  </div>
+  <canvas id="cv"></canvas>
+  <aside id="board"></aside>
+  <div id="toasts"></div>
+  <div id="overlay" class="hidden"></div>
+  <form id="chat"><div id="chatlog"></div><input id="chatIn" maxlength="200" placeholder="Chat (Enter)"></form>
+</section>
+
+<script src="/shared/physics.js"></script>
+<script src="common.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
