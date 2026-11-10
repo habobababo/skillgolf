@@ -61,7 +61,8 @@
       case 'shot': onShot(m); break;
       case 'shotEnd': onShotEnd(m); break;
       case 'turn': onTurn(m.turn); break;
-      case 'magnet': onMagnet(m.id); break;
+      case 'magnet': onMagnet(m.id, m.puck); break;
+      case 'timeout': onTimeout(m); break;
       case 'ultInput': { const a = anims.get(m.id); if (a && a.ult && !a.local) a.addInputs(m.inputs); break; }
       case 'holeEnd': showScoreTable(false); break;
       case 'finished': showScoreTable(true); break;
@@ -102,14 +103,15 @@
     if (m.id === myId) awaiting = false;
     const mode = m.mode || (m.ult ? 'ult' : null);
     const ult = !!mode;
-    const a = new S.BallAnim(P.withBalls(cm, m.others, m.from.x, m.from.y, m.magnets), m.from, m.vx, m.vy, m.end, m.result,
+    const a = new S.BallAnim(P.withBalls(cm, m.others, m.from.x, m.from.y, m.magnets, m.magPucks), m.from, m.vx, m.vy, m.end, m.result,
       { pucks: m.pucks0, mode, local: ult && m.id === myId });
     a.player = p; a.final = ult ? null : m; a.born = performance.now(); a.seq = m.seq;
     anims.set(m.id, a);
     p.shots = m.shots;
     if (turn && turn.seq === m.seq) { turn.phase = 'flight'; turnDeadline = 0; }
     $('hudTimer').textContent = '';
-    for (const q of room.players) q.magnet = false; // Magnet wirkt nur für diesen Schlag
+    a.magPucks = m.magPucks || [];
+    for (const q of room.players) { q.magnet = false; q.magnetPuck = null; } // Magnet wirkt nur für diesen Schlag
     if (ult) {
       ultBy = m.id;
       if (mode === 'ult') p.ultUsed = true;
@@ -172,6 +174,7 @@
     b.querySelector('b').textContent = main;
     b.classList.toggle('sling', kind === 'sling');
     b.classList.toggle('turn', kind === 'turn');
+    b.classList.toggle('opp', kind === 'opp');
     b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
     clearTimeout(bannerTimer); bannerTimer = setTimeout(() => b.classList.remove('show'), 3200);
   }
@@ -181,25 +184,42 @@
     if (!room || !t) return;
     setTurnState(t);
     const id = t.id;
-    for (const q of room.players) q.magnet = false;
+    for (const q of room.players) { q.magnet = false; q.magnetPuck = null; }
     const p = room.players.find((x) => x.id === id);
     if (id === myId) {
       const nm = nextMode(me());
       if (nm === 'ult') { banner('ULTIMATE BALL', 'DU BIST DRAN · next BALL is', 'ult'); sfx.alarm(); fx.screen(0.5, '255,46,136'); fx.shake(6); }
       else if (nm === 'sling') { banner('SLING BALL', 'DU BIST DRAN · next BALL is', 'sling'); sfx.sling(); fx.screen(0.3, '0,234,255'); }
       else { banner('DU BIST DRAN', '', 'turn'); sfx.turn(); fx.screen(0.25, '0,234,255'); }
-    } else if (p) toast(`${p.name} ist dran`);
+    } else if (p) {
+      // Gegner ist dran: große Einblendung in seiner Farbe
+      const b = $('ultBanner'); b.style.setProperty('--opp', p.color);
+      const me_ = me();
+      banner(`${p.name.toUpperCase()} IST DRAN`, me_ && !me_.done && P.config.magnet.usesPerHole > 0 && (me_.magnetLeft || 0) > 0 ? 'GEGNER · 🧲 Ball oder Puck magnetisieren' : 'GEGNER', 'opp');
+    }
     renderHud(); renderBoard();
   }
 
-  function onMagnet(id) {
+  /** Zeit abgelaufen: Strafschlag */
+  function onTimeout(m) {
+    const p = room && room.players.find((x) => x.id === m.id);
+    if (!p) return;
+    p.shots = m.shots; p.done = m.done;
+    if (p.ball && map) fx.text(p.ball.x, p.ball.y - 30, '+1 SCHLAG', '#ff3860', 26);
+    if (m.id === myId) { sfx.alarm(); fx.shake(4); }
+    renderHud(); renderBoard();
+  }
+
+  function onMagnet(id, puck) {
     const p = room && room.players.find((x) => x.id === id);
     if (!p) return;
-    p.magnet = true; p.magnetLeft = Math.max(0, (p.magnetLeft || 0) - 1);
-    if (p.ball) { fx.ring(p.ball.x, p.ball.y, '#ffe03a', P.config.magnet.radius, 0.8, 4); fx.ring(p.ball.x, p.ball.y, '#00eaff', P.config.magnet.radius * 0.6, 0.6, 3); }
+    p.magnet = true; p.magnetPuck = puck != null ? puck : null; p.magnetLeft = Math.max(0, (p.magnetLeft || 0) - 1);
+    const at = magnetPos(p);
+    if (at) { fx.ring(at.x, at.y, '#ffe03a', P.config.magnet.radius, 0.8, 4); fx.ring(at.x, at.y, '#00eaff', P.config.magnet.radius * 0.6, 0.6, 3); }
     sfx.magnet();
-    if (turn && turn.id === myId) toast(`🧲 ${p.name} hat MAGNETISIERT!`, true);
-    else toast(`🧲 ${p.name} magnetisiert`);
+    const what = p.magnetPuck != null ? 'einen PUCK' : 'seinen Ball';
+    if (turn && turn.id === myId) toast(`🧲 ${p.name} hat ${what} MAGNETISIERT!`, true);
+    else toast(`🧲 ${p.name} magnetisiert ${what}`);
     renderHud(); renderBoard();
   }
 
@@ -411,15 +431,16 @@
   function updateMagnetBtn() {
     const p = me(), b = $('btnMagnet');
     // nur, solange man selbst noch auf der Bahn spielt
-    const show = room && room.phase === 'playing' && p && p.ball && !p.sunk && !p.done && turn && turn.id !== myId && P.config.magnet.usesPerHole > 0;
+    const show = room && room.phase === 'playing' && p && !p.done && turn && turn.id !== myId && P.config.magnet.usesPerHole > 0;
     b.classList.toggle('hidden', !show);
     if (!show) return;
     const left = p.magnetLeft || 0;
     const tp = room.players.find((x) => x.id === turn.id);
     const close = tp && tp.ball && Math.hypot(tp.ball.x - p.ball.x, tp.ball.y - p.ball.y) < P.BALL_R * 2 + 0.5;
     b.classList.toggle('active', !!p.magnet);
-    b.disabled = !!p.magnet || left <= 0 || turn.phase !== 'aim' || close;
-    b.innerHTML = p.magnet ? '🧲 MAGNET AKTIV' : close ? '🧲 MAGNETISIEREN <small>zu nah</small>' : `🧲 MAGNETISIEREN <small>${left}×</small>`;
+    b.disabled = !!p.magnet || left <= 0 || turn.phase !== 'aim' || close || !p.ball || p.sunk;
+    b.innerHTML = p.magnet ? (p.magnetPuck != null ? '🧲 PUCK-MAGNET AKTIV' : '🧲 MAGNET AKTIV')
+      : `🧲 BALL MAGNETISIEREN <small>${close ? 'zu nah' : left + '×'}</small>${left > 0 && turn.phase === 'aim' ? '<small class="hint">oder Puck anklicken</small>' : ''}`;
   }
   $('btnMagnet').onclick = () => { send({ type: 'magnet' }); $('btnMagnet').blur(); };
   window.addEventListener('keydown', (e) => { if (e.code === 'KeyG' && document.activeElement.tagName !== 'INPUT' && !$('btnMagnet').classList.contains('hidden') && !$('btnMagnet').disabled) $('btnMagnet').click(); });
@@ -451,7 +472,7 @@
       const isTurn = room.phase === 'playing' && !!turn && turn.id === p.id;
       if (isTurn && !(p.done && !rolling)) st = (rolling ? 'rollt …' : '▶ <b>am Zug</b>') + ` · Schlag ${p.shots + (rolling ? 0 : 1)}/${P.MAX_SHOTS}`;
       if (room.phase === 'playing' && !p.done && p.bonus) st += ` · <b style="color:#39ff8a">+${p.bonus} Bonus</b>`;
-      if (p.magnet) st += ' · <b style="color:#ffe03a">🧲 Magnet</b>';
+      if (p.magnet) st += ` · <b style="color:#ffe03a">🧲 ${p.magnetPuck != null ? 'Puck-Magnet' : 'Magnet'}</b>`;
       else if (room.phase === 'playing' && !p.done && P.config.magnet.usesPerHole > 0) st += ` · 🧲${p.magnetLeft || 0}`;
       h += `<div class="bp ${p.id === myId ? 'me' : ''} ${isTurn ? 'turn' : ''}"><div class="top">${avatarHtml(p)}<span class="nm">${esc(p.name)}</span>${p.id === room.hostId ? '👑' : ''}<span class="tot">${total(p)}</span></div><div class="st">${st}</div></div>`;
     }
@@ -515,7 +536,7 @@
     shotMode: () => nextMode(me()),
     onShoot: (angle, power) => {
       // welche Magnete waren in meiner Vorschau? (Server ignoriert ganz frische, die ich noch nicht sehen konnte)
-      const mags = room.players.filter((q) => q.id !== myId && q.magnet && q.ball && !q.sunk).map((q) => q.id);
+      const mags = room.players.filter((q) => q.id !== myId && q.magnet && (q.magnetPuck != null || (q.ball && !q.sunk))).map((q) => q.id);
       awaiting = true; send({ type: 'shot', angle, power, mags });
       setTimeout(() => { awaiting = false; }, 3000);
     },
@@ -530,15 +551,47 @@
   function cmForMe(mine) {
     const others = [];
     for (const q of room.players) if (q.id !== myId && q.ball && !q.sunk) others.push(q.ball.x, q.ball.y);
-    const mags = [];
-    for (const q of room.players) if (q.id !== myId && q.magnet && q.ball && !q.sunk) mags.push(q.ball.x, q.ball.y);
-    const key = others.join(',') + '|' + mags.join(',') + '|' + mine.ball.x + ',' + mine.ball.y;
+    const mags = [], mp = [];
+    for (const q of room.players) {
+      if (q.id === myId || !q.magnet) continue;
+      if (q.magnetPuck != null) { if (pucks[q.magnetPuck] && pucks[q.magnetPuck].alive) mp.push(q.magnetPuck); }
+      else if (q.ball && !q.sunk) mags.push(q.ball.x, q.ball.y);
+    }
+    const key = others.join(',') + '|' + mags.join(',') + '|' + mp.join(',') + '|' + mine.ball.x + ',' + mine.ball.y;
     if (key !== shotCmKey || !shotCm || shotCm.base !== cm) {
-      shotCm = P.withBalls(cm, others, mine.ball.x, mine.ball.y, mags);
+      shotCm = P.withBalls(cm, others, mine.ball.x, mine.ball.y, mags, mp);
       shotCm.base = cm; shotCmKey = key;
     }
     return shotCm;
   }
+
+  /** wo sitzt der Magnet eines Spielers? (eigener Ball oder Puck) */
+  function magnetPos(p, list) {
+    list = list || pucks;
+    if (p.magnetPuck != null) { const q = list[p.magnetPuck]; return q && q.alive ? { x: q.x, y: q.y } : null; }
+    return p.ball && !p.sunk ? p.ball : null;
+  }
+  /** darf ich gerade einen Puck magnetisieren? */
+  function canMagnetPuck() {
+    const p = me();
+    return !!(room && room.phase === 'playing' && p && !p.done && !p.magnet && (p.magnetLeft || 0) > 0 && turn && turn.id !== myId && turn.phase === 'aim' && P.config.magnet.usesPerHole > 0);
+  }
+  function puckAt(w) {
+    if (!w) return -1;
+    let best = -1, bd = Infinity;
+    for (let i = 0; i < pucks.length; i++) {
+      const q = pucks[i]; if (!q.alive) continue;
+      const d = Math.hypot(q.x - w.x, q.y - w.y);
+      if (d < q.r + 10 && d < bd) { bd = d; best = i; }
+    }
+    if (best >= 0 && room.players.some((o) => o.magnet && o.magnetPuck === best)) return -1;
+    return best;
+  }
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || !canMagnetPuck()) return;
+    const i = puckAt(view.toWorld(e.clientX, e.clientY));
+    if (i >= 0) send({ type: 'magnet', puck: i });
+  });
 
   function ballPos(p) {
     const a = anims.get(p.id);
@@ -613,22 +666,35 @@
       for (const [, a] of anims) if (!a.done && (!live || a.born > live.born)) live = a;
       S.drawPucks(ctx, live ? live.pucks : pucks, t);
       // Magnetfelder
-      for (const p of room.players) {
-        if (!p.magnet || !p.ball || p.sunk) continue;
+      const livePucks = live ? live.pucks : pucks;
+      const fields = [];
+      for (const p of room.players) { const at = p.magnet ? magnetPos(p, livePucks) : null; if (at) fields.push(at); }
+      // während eines Schlags: magnetisierte Pucks des laufenden Schlags (wandern mit)
+      if (live && live.magPucks) for (const i of live.magPucks) { const q = livePucks[i]; if (q && q.alive) fields.push({ x: q.x, y: q.y }); }
+      for (const at of fields) {
         const R = P.config.magnet.radius;
         ctx.save(); ctx.globalCompositeOperation = 'lighter';
         for (let i = 0; i < 4; i++) {
           const f = ((t * 0.6 + i / 4) % 1), rr = R * (1 - f);
           ctx.strokeStyle = i % 2 ? '#ffe03a' : '#00eaff'; ctx.globalAlpha = 0.35 * f; ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.arc(p.ball.x, p.ball.y, rr, 0, 7); ctx.stroke();
+          ctx.beginPath(); ctx.arc(at.x, at.y, rr, 0, 7); ctx.stroke();
         }
-        ctx.globalAlpha = 0.12; ctx.fillStyle = '#ffe03a'; ctx.beginPath(); ctx.arc(p.ball.x, p.ball.y, R, 0, 7); ctx.fill();
+        ctx.globalAlpha = 0.12; ctx.fillStyle = '#ffe03a'; ctx.beginPath(); ctx.arc(at.x, at.y, R, 0, 7); ctx.fill();
         ctx.restore();
         if (Math.random() < 0.6) {
           const a = Math.random() * Math.PI * 2, d = R * (0.5 + Math.random() * 0.5);
-          fx.parts.push({ x: p.ball.x + Math.cos(a) * d, y: p.ball.y + Math.sin(a) * d, vx: 0, vy: 0, t: 0, life: 0.8, color: Math.random() < 0.5 ? '#ffe03a' : '#00eaff', size: 1.6, drag: 0, kind: 'dot', pull: { x: p.ball.x, y: p.ball.y, k: 900 } });
+          fx.parts.push({ x: at.x + Math.cos(a) * d, y: at.y + Math.sin(a) * d, vx: 0, vy: 0, t: 0, life: 0.8, color: Math.random() < 0.5 ? '#ffe03a' : '#00eaff', size: 1.6, drag: 0, kind: 'dot', pull: { x: at.x, y: at.y, k: 900 } });
         }
       }
+      // Puck unter der Maus hervorheben, wenn man ihn magnetisieren kann
+      const hp = canMagnetPuck() ? puckAt(ctrl.mouse) : -1;
+      if (hp >= 0) {
+        const q = pucks[hp];
+        ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = '#ffe03a'; ctx.lineWidth = 3; ctx.globalAlpha = 0.6 + Math.sin(t * 10) * 0.3;
+        ctx.setLineDash([5, 5]); ctx.lineDashOffset = -t * 30;
+        ctx.beginPath(); ctx.arc(q.x, q.y, q.r + 8, 0, 7); ctx.stroke(); ctx.restore();
+        canvas.style.cursor = 'pointer';
+      } else if (canvas.style.cursor) canvas.style.cursor = '';
       const ordered = room.players.slice().sort((a, b) => (a.id === myId) - (b.id === myId));
       for (const p of ordered) {
         if (!p.ball) continue;

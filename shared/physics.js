@@ -245,8 +245,9 @@
   /**
    * Liegende Gegnerbälle als feste Hindernisse hinzufügen.
    * balls: flaches Array [x1,y1,x2,y2,...]. Bälle, die den Schussstart überlappen (z. B. alle am Abschlag), werden ignoriert.
+   * magPucks: Indizes magnetisierter Pucks – der Magnet wandert mit dem Puck mit.
    */
-  function withBalls(cm, balls, sx, sy, magnets) {
+  function withBalls(cm, balls, sx, sy, magnets, magPucks) {
     const mags = [];
     const minM = K.ballRadius * 2 + 0.5; // Magnet direkt am Schützen (z. B. beide am Abschlag) wirkt nicht
     if (magnets) for (let i = 0; i + 1 < magnets.length; i += 2) {
@@ -255,6 +256,7 @@
       mags.push({ x: mx, y: my });
     }
     if (mags.length) cm = Object.assign({}, cm, { magnets: mags });
+    if (magPucks && magPucks.length) cm = Object.assign({}, cm, { magPucks: magPucks.map(Number).filter((i) => Number.isInteger(i) && i >= 0) });
     if (!balls || !balls.length) return cm;
     const extra = [];
     const min = K.ballRadius * 2 + 0.5;
@@ -307,7 +309,8 @@
   /** Schlag-Modus aus Schlagnummer (1-basiert) – gleiche Regel auf Server und Client */
   function shotMode(shotNo, ultUsed) {
     const n = K.ultimate.afterShots;
-    if (n > 0 && !ultUsed && shotNo === n + 1 && shotNo <= K.maxShots) return 'ult';
+    // >= statt ===: auch wenn ein Strafschlag (Zeit/Wasser) die Nummer überspringt, kommt der Ultimate noch
+    if (n > 0 && !ultUsed && shotNo >= n + 1 && shotNo <= K.maxShots) return 'ult';
     if (K.sling.steerTime > 0 && K.sling.shots.includes(shotNo)) return 'sling';
     return null;
   }
@@ -450,6 +453,15 @@
         const MR = K.magnet.radius, MS = K.magnet.strength;
         for (let i = 0; i < cm.magnets.length; i++) {
           const mg = cm.magnets[i], mx = mg.x - s.x, my = mg.y - s.y, md = Math.sqrt(mx * mx + my * my);
+          if (md < MR && md > 1e-6) { const f = MS * (1 - md / MR); ex += mx / md * f; ey += my / md * f; }
+        }
+      }
+      if (cm.magPucks) { // magnetisierte Pucks ziehen den Ball an, auch während sie selbst rollen
+        const MR = K.magnet.radius, MS = K.magnet.strength;
+        for (let i = 0; i < cm.magPucks.length; i++) {
+          const q = s.pucks[cm.magPucks[i]];
+          if (!q || !q.alive) continue;
+          const mx = q.x - s.x, my = q.y - s.y, md = Math.sqrt(mx * mx + my * my);
           if (md < MR && md > 1e-6) { const f = MS * (1 - md / MR); ex += mx / md * f; ey += my / md * f; }
         }
       }

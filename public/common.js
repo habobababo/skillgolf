@@ -777,7 +777,9 @@
     }
     draw(ctx, ball, color, cm, maxTime, t, portion) {
       if (!this.enabled || !ball) return;
-      const pred = portion === 0 ? null : this.prediction(cm, ball, maxTime);
+      // Vorschau erst beim Ziehen (Spiel); der Editor-Testmodus kann sie auch beim Zielen zeigen (opts.hoverPreview)
+      const showPred = portion !== 0 && (this.dragging || this.opts.hoverPreview);
+      const pred = showPred ? this.prediction(cm, ball, maxTime) : null;
       if (pred) drawPrediction(ctx, pred, color, { ghost: !this.dragging, t, portion });
       const pw = this.dragging ? this.power : this.lastPower;
       ctx.save();

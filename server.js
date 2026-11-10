@@ -152,7 +152,7 @@ function publicRoom(room) {
     turn: publicTurn(room),
     players: room.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, avatar: p.avatar || null, ultUsed: !!p.ultUsed, scores: p.scores, points: p.points, bonus: p.bonus || 0, shots: p.shots, done: p.done, sunk: p.sunk,
-      magnet: !!p.magnet, magnetLeft: p.magnetLeft ?? 0,
+      magnet: !!p.magnet, magnetPuck: p.magnet && p.magnetPuck != null ? p.magnetPuck : null, magnetLeft: p.magnetLeft ?? 0,
       ball: p.ball,
     })),
   };
@@ -212,11 +212,17 @@ function beginTurn(room, id) {
   room.turnSeq = (room.turnSeq || 0) + 1;
   const T = P.config.turn.timeLimit;
   const t = room.turn = { id, seq: room.turnSeq, phase: 'aim', deadline: T ? Date.now() + T * 1000 : 0, idx: room.players.findIndex((q) => q.id === id) };
-  for (const q of room.players) q.magnet = false;
+  for (const q of room.players) { q.magnet = false; q.magnetPuck = null; }
   if (T) t.timer = setTimeout(() => {
     if (room.turn !== t || t.phase !== 'aim') return;
     const q = room.players.find((x) => x.id === id);
-    broadcast(room, { type: 'toast', text: `⏱ ${q ? q.name : 'Spieler'}: Zeit abgelaufen` });
+    // Zeit abgelaufen = 1 Strafschlag
+    if (q && !q.done) {
+      q.shots = Math.min(P.MAX_SHOTS, q.shots + 1);
+      if (q.shots >= P.MAX_SHOTS) finishPlayer(room, q, false);
+    }
+    broadcast(room, { type: 'timeout', id, shots: q ? q.shots : 0, done: q ? q.done : false });
+    broadcast(room, { type: 'toast', text: `⏱ ${q ? q.name : 'Spieler'}: Zeit abgelaufen – +1 Schlag` });
     endTurn(room);
   }, T * 1000);
   syncRoom(room);
@@ -276,16 +282,26 @@ function holeEnd(room) {
   }, 600);
 }
 
-/** wartender Spieler magnetisiert seinen Ball für den nächsten Schlag des Gegners */
-function handleMagnet(room, p) {
+/** wartender Spieler magnetisiert seinen Ball (oder einen Puck) für den nächsten Schlag des Gegners */
+function handleMagnet(room, p, msg) {
   const t = room.turn;
   if (room.phase !== 'playing' || !t || t.id === p.id) return send(p.ws, { type: 'error', text: 'Magnet nur, wenn ein anderer dran ist' });
   if (p.done) return send(p.ws, { type: 'error', text: 'Magnet nur, solange du selbst noch auf der Bahn spielst' });
   if (t.phase !== 'aim') return send(p.ws, { type: 'error', text: 'Zu spät – der Ball ist schon unterwegs' });
-  if (!p.ball || p.sunk || p.magnet || (p.magnetLeft || 0) <= 0) return;
+  if (p.magnet || (p.magnetLeft || 0) <= 0) return;
   const tp = room.players.find((q) => q.id === t.id);
+  if (msg && msg.puck != null) {
+    const i = Number(msg.puck), q = room.pucks && room.pucks[i];
+    if (!Number.isInteger(i) || !q || !q.alive) return send(p.ws, { type: 'error', text: 'Diesen Puck gibt es nicht mehr' });
+    if (room.players.some((o) => o.magnet && o.magnetPuck === i)) return send(p.ws, { type: 'error', text: 'Dieser Puck ist schon magnetisiert' });
+    p.magnet = true; p.magnetPuck = i; p.magnetLeft--; p.magnetAt = Date.now();
+    broadcast(room, { type: 'magnet', id: p.id, puck: i });
+    syncRoom(room);
+    return;
+  }
+  if (!p.ball || p.sunk) return;
   if (tp && tp.ball && Math.hypot(tp.ball.x - p.ball.x, tp.ball.y - p.ball.y) < P.BALL_R * 2 + 0.5) return send(p.ws, { type: 'error', text: 'Zu nah am Ball des Gegners' });
-  p.magnet = true; p.magnetLeft--; p.magnetAt = Date.now();
+  p.magnet = true; p.magnetPuck = null; p.magnetLeft--; p.magnetAt = Date.now();
   broadcast(room, { type: 'magnet', id: p.id });
   syncRoom(room);
 }
@@ -349,9 +365,13 @@ function handleShot(room, p, msg) {
   // So kann ein Magnet, der eine Sekunde vor dem Schlag kommt, die Vorschau nicht unbemerkt verfälschen.
   const seen = new Set(Array.isArray(msg.mags) ? msg.mags.map(Number) : []);
   const now = Date.now();
-  const magnets = [];
-  for (const q of room.players) if (q !== p && q.magnet && q.ball && !q.sunk && (seen.has(q.id) || now - (q.magnetAt || 0) > 1500)) magnets.push(q.ball.x, q.ball.y);
-  const cmShot = P.withBalls(room.cm, others, from.x, from.y, magnets);
+  const magnets = [], magPucks = [];
+  for (const q of room.players) {
+    if (q === p || !q.magnet || !(seen.has(q.id) || now - (q.magnetAt || 0) > 1500)) continue;
+    if (q.magnetPuck != null) { if (room.pucks[q.magnetPuck] && room.pucks[q.magnetPuck].alive) magPucks.push(q.magnetPuck); }
+    else if (q.ball && !q.sunk) magnets.push(q.ball.x, q.ball.y);
+  }
+  const cmShot = P.withBalls(room.cm, others, from.x, from.y, magnets, magPucks);
   const pucks0 = room.pucks;
   p.shots++;
   turnFlight(room);
@@ -363,13 +383,13 @@ function handleShot(room, p, msg) {
     const U = P.modeCfg(mode);
     room.ult = { pid: p.id, mode, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, inputs: [], max: Math.round(U.steerTime / P.DT) * 2, accel: U.steerAccel };
     room.ult.timer = setTimeout(() => finishUltimate(room), (U.steerTime / U.slowmo + 15) * 1000);
-    broadcast(room, { type: 'shot', seq, id: p.id, mode, ult: mode === 'ult', from, others, magnets, vx: v.vx, vy: v.vy, pucks0, shots: p.shots });
+    broadcast(room, { type: 'shot', seq, id: p.id, mode, ult: mode === 'ult', from, others, magnets, magPucks, vx: v.vx, vy: v.vy, pucks0, shots: p.shots });
     return;
   }
 
   const r = P.simulate(cmShot, from.x, from.y, v.vx, v.vy, { pucks: pucks0 });
   const gain = applyResult(room, p, from, r, r.time * 1000, pucks0);
-  broadcast(room, { type: 'shot', seq, id: p.id, from, others, magnets, vx: v.vx, vy: v.vy, pucks0, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
+  broadcast(room, { type: 'shot', seq, id: p.id, from, others, magnets, magPucks, vx: v.vx, vy: v.vy, pucks0, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
   turnResolved(room, r.time * 1000);
 }
 
@@ -527,7 +547,7 @@ wss.on('connection', (ws) => {
         if (room) handleUltInput(room, p, msg);
         break;
       case 'magnet':
-        if (room) handleMagnet(room, p);
+        if (room) handleMagnet(room, p, msg);
         break;
       case 'animDone':
         // Browser meldet: Animation des Schlags seq ist fertig

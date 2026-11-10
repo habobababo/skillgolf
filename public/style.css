@@ -147,3 +147,8 @@ table.score th.hardcol { color: #ff3860; }
 table.score td small.stk { display: block; font-size: 10px; opacity: .55; font-weight: 400; text-shadow: none; }
 table.score .ptot { color: #ffe03a; text-shadow: 0 0 8px rgba(255,224,58,.6); font-size: 15px; }
 #board p.pts { font-size: 11px; line-height: 1.5; }
+/* Gegner ist dran */
+#ultBanner.opp b { font-size: 72px; background-image: linear-gradient(90deg, var(--opp, #ff3860), #ffffff, var(--opp, #ff3860)); filter: drop-shadow(0 0 16px var(--opp, #ff3860)); }
+#ultBanner.opp small { font-size: 24px; letter-spacing: 4px; text-shadow: 0 0 12px var(--opp, #ff3860); }
+@media (max-width: 800px) { #ultBanner.opp b { font-size: 36px; } }
+#btnMagnet small.hint { display: block; font-size: 10px; opacity: .7; letter-spacing: 1px; }

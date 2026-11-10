@@ -389,7 +389,7 @@
   // ------------------------------------------------------------ Test-Modus
   const fx = new S.FX(), sfx = new S.SFX();
   const ctrl = new S.ShotController(canvas, view, {
-    fx, sfx, color: () => '#ffe03a',
+    fx, sfx, color: () => '#ffe03a', hoverPreview: true,
     canShoot: () => !!testing && !testing.anim && !testing.done,
     getPucks: () => (testing ? { list: testing.pucks, ver: testing.pver } : null),
     shotMode: () => testMode(),
