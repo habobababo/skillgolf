@@ -151,7 +151,7 @@ function publicRoom(room) {
     playlist: room.playlist, settings: room.settings, ultBy: room.ult ? room.ult.pid : null,
     turn: publicTurn(room),
     players: room.players.map((p) => ({
-      id: p.id, name: p.name, color: p.color, avatar: p.avatar || null, ultUsed: !!p.ultUsed, scores: p.scores, shots: p.shots, done: p.done, sunk: p.sunk,
+      id: p.id, name: p.name, color: p.color, avatar: p.avatar || null, ultUsed: !!p.ultUsed, scores: p.scores, points: p.points, bonus: p.bonus || 0, shots: p.shots, done: p.done, sunk: p.sunk,
       magnet: !!p.magnet, magnetLeft: p.magnetLeft ?? 0,
       ball: p.ball,
     })),
@@ -178,7 +178,9 @@ function startHole(room) {
     p.ball = { x: room.cm.start.x, y: room.cm.start.y };
     p.shots = 0; p.done = false; p.sunk = false; p.busyUntil = 0; p.ultUsed = false;
     p.magnet = false; p.magnetLeft = P.config.magnet.usesPerHole;
+    p.bonus = 0; p.puckBonus = 0;
     while (p.scores.length < room.holeIndex) p.scores.push(null);
+    while (p.points.length < room.holeIndex) p.points.push(null);
   }
   broadcast(room, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map, config: P.config, pucks: room.pucks });
   // reihum: jede Bahn beginnt ein anderer Spieler
@@ -278,11 +280,12 @@ function holeEnd(room) {
 function handleMagnet(room, p) {
   const t = room.turn;
   if (room.phase !== 'playing' || !t || t.id === p.id) return send(p.ws, { type: 'error', text: 'Magnet nur, wenn ein anderer dran ist' });
+  if (p.done) return send(p.ws, { type: 'error', text: 'Magnet nur, solange du selbst noch auf der Bahn spielst' });
   if (t.phase !== 'aim') return send(p.ws, { type: 'error', text: 'Zu spät – der Ball ist schon unterwegs' });
   if (!p.ball || p.sunk || p.magnet || (p.magnetLeft || 0) <= 0) return;
   const tp = room.players.find((q) => q.id === t.id);
   if (tp && tp.ball && Math.hypot(tp.ball.x - p.ball.x, tp.ball.y - p.ball.y) < P.BALL_R * 2 + 0.5) return send(p.ws, { type: 'error', text: 'Zu nah am Ball des Gegners' });
-  p.magnet = true; p.magnetLeft--;
+  p.magnet = true; p.magnetLeft--; p.magnetAt = Date.now();
   broadcast(room, { type: 'magnet', id: p.id });
   syncRoom(room);
 }
@@ -302,6 +305,8 @@ function nextHole(room) {
 function finishPlayer(room, p, sunk) {
   p.done = true; p.sunk = sunk;
   p.scores[room.holeIndex] = sunk ? p.shots : P.MISS_SCORE;
+  const par = (room.map && room.map.par) || 3;
+  p.points[room.holeIndex] = P.holePoints(sunk, p.shots, par) + (p.bonus || 0);
 }
 
 /** Modus des nächsten Schlags: 'ult' | 'sling' | null */
@@ -313,13 +318,21 @@ function othersOf(room, p) {
   return others;
 }
 
-/** Ergebnis eines Schlags übernehmen (normal + Ultimate) */
-function applyResult(room, p, from, r, busyMs) {
+/** Ergebnis eines Schlags übernehmen (normal + Ultimate); gibt die Bonuspunkte des Schlags zurück */
+function applyResult(room, p, from, r, busyMs, pucks0) {
   p.busyUntil = Date.now() + busyMs;
+  const b = P.shotBonus(pucks0 || [], r.pucks, r.result, r.nb || 0);
+  const cap = P.config.points.maxPuckBonus;
+  const puckPts = Math.max(0, Math.min(b.puckPts, cap - (p.puckBonus || 0)));
+  p.puckBonus = (p.puckBonus || 0) + puckPts;
+  const gain = { pucks: b.pucks, puckPts, trick: b.trick, nb: b.nb };
+  p.bonus = (p.bonus || 0) + puckPts + b.trick;
   room.pucks = r.pucks;
   if (r.result === 'water') { p.ball = from; p.shots = Math.min(P.MAX_SHOTS, p.shots + P.config.waterPenalty); } else p.ball = { x: r.x, y: r.y };
   if (r.result === 'sunk') finishPlayer(room, p, true);
   else if (p.shots >= P.MAX_SHOTS) finishPlayer(room, p, false);
+  if (p.done) gain.hole = p.points[room.holeIndex];
+  return gain;
 }
 
 function handleShot(room, p, msg) {
@@ -332,8 +345,12 @@ function handleShot(room, p, msg) {
   const v = P.shotVelocity(angle, power, mode);
   const from = { x: p.ball.x, y: p.ball.y };
   const others = othersOf(room, p); // liegende Gegnerbälle sind Hindernisse (eingelochte nicht)
+  // Magnete: nur die, die der Schütze in seiner Vorschau schon hatte – oder die schon länger aktiv sind.
+  // So kann ein Magnet, der eine Sekunde vor dem Schlag kommt, die Vorschau nicht unbemerkt verfälschen.
+  const seen = new Set(Array.isArray(msg.mags) ? msg.mags.map(Number) : []);
+  const now = Date.now();
   const magnets = [];
-  for (const q of room.players) if (q !== p && q.magnet && q.ball && !q.sunk) magnets.push(q.ball.x, q.ball.y);
+  for (const q of room.players) if (q !== p && q.magnet && q.ball && !q.sunk && (seen.has(q.id) || now - (q.magnetAt || 0) > 1500)) magnets.push(q.ball.x, q.ball.y);
   const cmShot = P.withBalls(room.cm, others, from.x, from.y, magnets);
   const pucks0 = room.pucks;
   p.shots++;
@@ -351,8 +368,8 @@ function handleShot(room, p, msg) {
   }
 
   const r = P.simulate(cmShot, from.x, from.y, v.vx, v.vy, { pucks: pucks0 });
-  applyResult(room, p, from, r, r.time * 1000);
-  broadcast(room, { type: 'shot', seq, id: p.id, from, others, magnets, vx: v.vx, vy: v.vy, pucks0, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex] });
+  const gain = applyResult(room, p, from, r, r.time * 1000, pucks0);
+  broadcast(room, { type: 'shot', seq, id: p.id, from, others, magnets, vx: v.vx, vy: v.vy, pucks0, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
   turnResolved(room, r.time * 1000);
 }
 
@@ -383,8 +400,8 @@ function finishUltimate(room) {
   if (!p) { room.pucks = r.pucks; broadcast(room, { type: 'shotEnd', seq, id: u.pid, pucks: r.pucks, gone: true }); turnResolved(room, 0); return; }
   const steerT = (u.inputs.length / 2) * P.DT;
   const rest = Math.max(0, r.time - steerT) * 1000;
-  applyResult(room, p, u.from, r, rest);
-  broadcast(room, { type: 'shotEnd', seq, id: p.id, n: u.inputs.length / 2, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex] });
+  const gain = applyResult(room, p, u.from, r, rest, u.pucks0);
+  broadcast(room, { type: 'shotEnd', seq, id: p.id, n: u.inputs.length / 2, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
   // Zuschauer hängen beim Steuern etwas hinterher (Puffer + Zeitlupe) -> großzügiger Timeout
   turnResolved(room, rest, (P.modeCfg(u.mode).steerTime / P.modeCfg(u.mode).slowmo) * 1000 * 0.5);
 }
@@ -419,14 +436,15 @@ function joinRoom(p, room) {
   leave(p);
   p.room = room;
   p.color = freeColor(room);
-  p.scores = []; p.shots = 0; p.done = false; p.sunk = false; p.busyUntil = 0; p.ball = null;
+  p.scores = []; p.points = []; p.bonus = 0; p.puckBonus = 0; p.shots = 0; p.done = false; p.sunk = false; p.busyUntil = 0; p.ball = null;
   room.players.push(p);
   send(p.ws, { type: 'joined', code: room.code });
   if (room.phase === 'playing' || room.phase === 'holeEnd') {
     p.magnet = false; p.magnetLeft = P.config.magnet.usesPerHole;
     while (p.scores.length < room.holeIndex) p.scores.push(null);
+    while (p.points.length < room.holeIndex) p.points.push(null);
     p.ball = { x: room.cm.start.x, y: room.cm.start.y };
-    if (room.phase === 'holeEnd') { p.done = true; p.scores[room.holeIndex] = null; }
+    if (room.phase === 'holeEnd') { p.done = true; p.scores[room.holeIndex] = null; p.points[room.holeIndex] = null; }
     send(p.ws, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map: room.map, config: P.config, pucks: room.pucks });
   }
   broadcast(room, { type: 'toast', text: `${p.name} ist beigetreten` });
@@ -436,7 +454,7 @@ function joinRoom(p, room) {
 
 const wss = new WebSocketServer({ server, maxPayload: 96 * 1024 });
 wss.on('connection', (ws) => {
-  const p = { id: nextId++, ws, name: 'Spieler', room: null, scores: [] };
+  const p = { id: nextId++, ws, name: 'Spieler', room: null, scores: [], points: [] };
   send(ws, { type: 'welcome', id: p.id, config: P.config, build: BUILD });
 
   ws.on('message', (data) => {
@@ -488,7 +506,7 @@ wss.on('connection', (ws) => {
         if (room.phase !== 'lobby' && room.phase !== 'finished') return;
         clearTimeout(room.timer);
         room.holeIndex = 0; room.endPending = false;
-        for (const pl of room.players) pl.scores = [];
+        for (const pl of room.players) { pl.scores = []; pl.points = []; }
         startHole(room);
         break;
       case 'skip':

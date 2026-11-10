@@ -25,7 +25,12 @@
     ballRadius: 8,
     holeRadius: 14,
     captureSpeed: 560,     // langsamer als das -> Ball fällt ins Loch
-    holePull: 2600,        // Sog des Lochs (px/s²)
+    holePull: 2600,        // Sog direkt am Lochrand (px/s²)
+    blackHole: {           // Das Loch ist ein schwarzes Loch und zieht Ball und Pucks an
+      radius: 240,         // Reichweite der Anziehung (px), 0 = aus
+      strength: 1500,      // Anziehung im Zentrum (px/s²), nimmt nach außen quadratisch ab
+      puckFactor: 1,       // Multiplikator für Pucks (schwere Pucks spüren zusätzlich weniger)
+    },
     maxShotTime: 40,       // Sekunden, nach denen ein Schlag hart beendet wird
     surfaces: {            // decel = konstante Bremsung (px/s²), drag = geschwindigkeitsabhängige Bremsung
       grass: { decel: 220, drag: 0.32 },
@@ -70,6 +75,14 @@
     },
     turn: {
       timeLimit: 45,       // Sekunden pro Zug, danach ist der nächste dran (0 = unbegrenzt)
+    },
+    points: {              // Punktesystem: mehr Punkte = besser
+      holeInOne: 10, eagle: 7, birdie: 5, par: 3, bogey: 2, worse: 1, miss: 0,
+      puck: 1,             // Bonus pro versenktem Puck (Wasser oder schwarzes Loch) im eigenen Schlag
+      heavyPuck: 2,        // Bonus für einen schweren Puck
+      trickshot: 2,        // Bonus, wenn der einlochende Schlag mindestens trickBounces Abpraller hatte
+      trickBounces: 3,
+      maxPuckBonus: 5,     // höchstens so viele Puck-Bonuspunkte pro Bahn
     },
     magnet: {              // „MAGNETISIEREN“: wartende Spieler ziehen den Ball des Schützen an
       usesPerHole: 2,      // Ladungen pro Spieler und Bahn
@@ -137,12 +150,41 @@
     c.preview.minWidth = lim(c.preview.minWidth, 0.3, c.preview.width);
     c.preview.fade = lim(c.preview.fade, 0, 1);
     c.preview.fadeLength = lim(c.preview.fadeLength, 50, 100000);
+    c.blackHole.radius = lim(c.blackHole.radius, 0, 3000);
+    c.blackHole.strength = lim(c.blackHole.strength, 0, 20000);
+    c.blackHole.puckFactor = lim(c.blackHole.puckFactor, 0, 10);
+    for (const k of Object.keys(c.points)) c.points[k] = Math.round(lim(c.points[k], 0, 100));
     K = c;
     return K;
   }
 
   function num(v, d) { v = Number(v); return Number.isFinite(v) ? v : d; }
-  function deg2vec(deg) { const a = (deg * Math.PI) / 180; return [Math.cos(a), Math.sin(a)]; }
+
+  /*
+   * Deterministische Winkelfunktionen. Math.sin/Math.cos sind laut Standard nicht exakt festgelegt
+   * und können sich zwischen Browsern und Node in der letzten Stelle unterscheiden. Bei vielen
+   * Abprallern reicht das, damit Vorschau und Server-Ergebnis auseinanderlaufen. Deshalb hier nur
+   * + - * / und floor (Reihenentwicklung nach Bereichsreduktion).
+   */
+  const TAU = 6.283185307179586, HALF_PI = 1.5707963267948966, PI_ = 3.141592653589793;
+  function reduce(a) { // -> [-π, π]
+    a = num(a, 0);
+    if (a > PI_ || a < -PI_) a -= TAU * Math.floor((a + PI_) / TAU);
+    return a;
+  }
+  function sinCore(x) { // |x| <= π/2
+    const x2 = x * x;
+    let t = x, sum = x;
+    for (let k = 1; k <= 11; k++) { t = -t * x2 / ((2 * k) * (2 * k + 1)); sum += t; }
+    return sum;
+  }
+  function dsin(a) {
+    a = reduce(a);
+    if (a > HALF_PI) a = PI_ - a; else if (a < -HALF_PI) a = -PI_ - a;
+    return sinCore(a);
+  }
+  function dcos(a) { return dsin(a + HALF_PI); }
+  function deg2vec(deg) { const a = (deg * PI_) / 180; return [dcos(a), dsin(a)]; }
 
   /** Rechteck normalisieren (negative Breite/Höhe erlaubt) */
   function rectOf(o) {
@@ -235,7 +277,7 @@
     opts = opts || {};
     const s = {
       x, y, vx, vy, t: 0, n: 0, slow: 0, done: false, allDone: false, result: null, sx: x, sy: y,
-      bounce: false, hitV: 0, hit: null, pucks: pucks ? clonePucks(pucks) : [], inputs: opts.inputs || null, pevents: [],
+      nb: 0, bounce: false, hitV: 0, hit: null, pucks: pucks ? clonePucks(pucks) : [], inputs: opts.inputs || null, pevents: [],
     };
     if (opts.kick) ultimateKick(s);
     return s;
@@ -274,7 +316,7 @@
     power = Math.max(0, Math.min(1, num(power, 0)));
     const mc = modeCfg(mode);
     const sp = power * K.maxSpeed * (mc ? mc.launchFactor : 1);
-    return { vx: Math.cos(angle) * sp, vy: Math.sin(angle) * sp };
+    return { vx: dcos(angle) * sp, vy: dsin(angle) * sp };
   }
 
   /** Körper b (Radius r) gegen feste Objekte; rec = Treffer für Effekte merken */
@@ -324,7 +366,7 @@
         b.vx -= (1 + o.e) * vn * nx;
         b.vy -= (1 + o.e) * vn * ny;
         if (o.kick) { b.vx += nx * o.kick; b.vy += ny * o.kick; }
-        if (rec && vn < -40) { b.bounce = true; if (-vn > b.hitV) { b.hitV = -vn; b.hit = o; } }
+        if (rec && vn < -40) { b.bounce = true; b.nb = (b.nb || 0) + 1; if (-vn > b.hitV) { b.hitV = -vn; b.hit = o; } }
       }
     }
   }
@@ -377,6 +419,18 @@
     return true;
   }
 
+  /** Anziehung des schwarzen Lochs (px/s²) auf einen Körper -> [ax, ay] */
+  function holeGravity(cm, x, y, k) {
+    const BH = K.blackHole, R = BH.radius;
+    if (!(R > 0) || !(BH.strength > 0) || !(k > 0)) return null;
+    const dx = cm.hole.x - x, dy = cm.hole.y - y, d2 = dx * dx + dy * dy;
+    if (d2 >= R * R || d2 < 1e-12) return null;
+    const d = Math.sqrt(d2), f = 1 - d / R, a = BH.strength * f * f * k;
+    return [dx / d * a, dy / d * a];
+  }
+  /** wie stark ein Puck das Loch spürt (schwere weniger) */
+  function puckPull(q) { return K.blackHole.puckFactor / (1 + q.m * 0.05); }
+
   /** einen Zeitschritt simulieren (Ball + Pucks) */
   function step(cm, s) {
     if (s.allDone) return;
@@ -389,6 +443,8 @@
       let ex = 0, ey = 0;
       const hx = cm.hole.x - s.x, hy = cm.hole.y - s.y, hd = Math.sqrt(hx * hx + hy * hy);
       if (hd < HOLE_R && hd > 1e-6) { ex += (hx / hd) * K.holePull; ey += (hy / hd) * K.holePull; }
+      const g = holeGravity(cm, s.x, s.y, 1);
+      if (g) { ex += g[0]; ey += g[1]; }
       if (s.inputs && s.n * 2 + 1 < s.inputs.length) { ex += s.inputs[s.n * 2]; ey += s.inputs[s.n * 2 + 1]; }
       if (cm.magnets) {
         const MR = K.magnet.radius, MS = K.magnet.strength;
@@ -404,7 +460,8 @@
     for (let i = 0; i < s.pucks.length; i++) {
       const q = s.pucks[i];
       if (!q.alive) continue;
-      if (!applyForces(cm, q, PK.friction, 0, 0)) { q.alive = false; q.vx = q.vy = 0; s.pevents.push({ type: 'sink', x: q.x, y: q.y, c: q.c }); continue; }
+      const g = holeGravity(cm, q.x, q.y, puckPull(q));
+      if (!applyForces(cm, q, PK.friction, g ? g[0] : 0, g ? g[1] : 0)) { q.alive = false; q.vx = q.vy = 0; s.pevents.push({ type: 'sink', x: q.x, y: q.y, c: q.c }); continue; }
       if (q._sp < STOP_SPEED && q._a2 < q._dec * q._dec) { q.vx = 0; q.vy = 0; q._sp = 0; }
       if (q._sp > maxSp) maxSp = q._sp;
     }
@@ -438,6 +495,13 @@
           const imp = collidePair(a, a.m, b, b.m, PK.bounce, a.r, b.r);
           if (imp > 120 && s.pevents.length < 200) s.pevents.push({ type: 'pp', x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, v: imp });
         }
+      }
+      // Pucks, die ins schwarze Loch fallen, werden verschluckt
+      for (let i = 0; i < s.pucks.length; i++) {
+        const q = s.pucks[i];
+        if (!q.alive) continue;
+        const dx = cm.hole.x - q.x, dy = cm.hole.y - q.y;
+        if (dx * dx + dy * dy < HOLE_R * HOLE_R) { q.alive = false; q.vx = q.vy = 0; s.pevents.push({ type: 'swallow', x: q.x, y: q.y, c: q.c }); }
       }
       if (!s.done) {
         const dx = cm.hole.x - s.x, dy = cm.hole.y - s.y, cr = Math.max(1, HOLE_R - 3);
@@ -503,8 +567,27 @@
     if (ppaths) for (let i = 0; i < s.pucks.length; i++) { const q = s.pucks[i]; ppaths[i].push(q.x, q.y); }
     return {
       x: s.x, y: s.y, result: s.done ? s.result : 'cut', steps: s.n, time: s.t, ballTime: ballDoneAt < 0 ? s.t : ballDoneAt,
-      points, bounces, ppaths, pucks: exportPucks(s),
+      points, bounces, ppaths, pucks: exportPucks(s), nb: s.nb,
     };
+  }
+
+  /** Punkte einer Bahn: Basis nach Schlägen/Par (+ Boni werden separat gezählt) */
+  function holePoints(sunk, shots, par) {
+    const Q = K.points;
+    if (!sunk) return Q.miss;
+    if (shots === 1) return Q.holeInOne;
+    const d = shots - par;
+    return d <= -2 ? Q.eagle : d === -1 ? Q.birdie : d === 0 ? Q.par : d === 1 ? Q.bogey : Q.worse;
+  }
+  /** Boni eines Schlags aus Puck-Zustand vorher/nachher und Abprallern */
+  function shotBonus(pucksBefore, pucksAfter, result, nb) {
+    const Q = K.points;
+    let pk = 0, n = 0;
+    for (let i = 0; i < pucksBefore.length && i < pucksAfter.length; i++) {
+      if (pucksBefore[i].alive !== false && pucksAfter[i].alive === false) { n++; pk += pucksBefore[i].c === 'heavy' ? Q.heavyPuck : Q.puck; }
+    }
+    const trick = result === 'sunk' && Q.trickBounces > 0 && nb >= Q.trickBounces ? Q.trickshot : 0;
+    return { pucks: n, puckPts: pk, trick, nb };
   }
 
   // ---------------------------------------------------------------- Pucks verteilen
@@ -525,6 +608,10 @@
       const c = classes[ci], r = PK[c].radius, m = PK[c].mass;
       const x = r + 10 + R() * (cm.W - 2 * r - 20), y = r + 10 + R() * (cm.H - 2 * r - 20);
       if ((x - cm.hole.x) ** 2 + (y - cm.hole.y) ** 2 < 80 * 80) continue;
+      { // nicht dort, wo das schwarze Loch den Puck sofort wegzieht
+        const g = holeGravity(cm, x, y, puckPull({ m }));
+        if (g && g[0] * g[0] + g[1] * g[1] > (K.surfaces.grass.decel * PK.friction * 0.8) ** 2) continue;
+      }
       if ((x - cm.start.x) ** 2 + (y - cm.start.y) ** 2 < 90 * 90) continue;
       if (cm.zones.some((z) => z.kind === 'water' && x > z.x1 - r && x < z.x2 + r && y > z.y1 - r && y < z.y2 + r)) continue;
       if (out.some((q) => (q.x - x) ** 2 + (q.y - y) ** 2 < (q.r + r + 8) ** 2)) continue;
@@ -575,6 +662,7 @@
   const api = {
     DT, DEFAULTS, DEFAULT_CONFIG,
     configure, compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap, spawnPucks, exportPucks, modeCfg, shotMode,
+    holePoints, shotBonus, dsin, dcos,
   };
   // Live-Werte (ändern sich mit configure)
   Object.defineProperties(api, {

@@ -10,6 +10,11 @@
   "holeRadius": 14,
   "captureSpeed": 560,
   "holePull": 2600,
+  "blackHole": {
+    "radius": 240,
+    "strength": 1500,
+    "puckFactor": 1
+  },
   "maxShotTime": 40,
   "surfaces": {
     "grass": {
@@ -91,5 +96,19 @@
   },
   "fps": 60,
   "holeEndDelay": 5.5,
-  "maxPlayers": 8
+  "maxPlayers": 8,
+  "points": {
+    "holeInOne": 10,
+    "eagle": 7,
+    "birdie": 5,
+    "par": 3,
+    "bogey": 2,
+    "worse": 1,
+    "miss": 0,
+    "puck": 1,
+    "heavyPuck": 2,
+    "trickshot": 2,
+    "trickBounces": 3,
+    "maxPuckBonus": 5
+  }
 }

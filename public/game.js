@@ -133,8 +133,19 @@
   function resolveShot(p, m, a) {
     p.done = m.done; p.sunk = m.sunk;
     if (m.score != null) p.scores[room.holeIndex] = m.score;
+    if (!p.points) p.points = [];
+    if (m.points != null) p.points[room.holeIndex] = m.points;
+    if (m.bonus != null) p.bonus = m.bonus;
     const mine = p.id === myId;
     const pos = a ? a.pos : m.end;
+    // Bonuspunkte einblenden
+    const g = m.gain;
+    if (g) {
+      let dy = 0;
+      if (g.puckPts > 0) { fx.text(pos.x, pos.y - 60 - dy, `+${g.puckPts} PUCK${g.pucks > 1 ? 'S' : ''}`, '#39ff8a', 24); dy += 28; sfx.tone(988, 0.15, 'triangle', 0.12); }
+      if (g.trick > 0) { fx.text(map.hole.x, map.hole.y - 80, `+${g.trick} TRICKSHOT (${g.nb}× Bande)`, '#ffe03a', 28); if (mine) toast(`🎯 TRICKSHOT +${g.trick}`, true); }
+      if (g.hole != null && mine) setTimeout(() => toast(`Bahn: ${g.hole} Punkte`, false), 900);
+    }
     if (m.result === 'sunk') {
       const par = map.par, s = m.shots;
       const word = s === 1 ? 'HOLE-IN-ONE!' : s <= par - 2 ? 'EAGLE!' : s === par - 1 ? 'BIRDIE!' : s === par ? 'PAR' : s === par + 1 ? 'BOGEY' : `+${s - par}`;
@@ -144,8 +155,8 @@
     } else if (m.result === 'water') {
       fx.text(pos.x, pos.y - 20, 'SPLASH!', '#5aa0ff', 26);
       if (mine) toast('💦 Wasser! Zurück zur letzten Position');
-      if (mine && m.done) toast(`Keine Schläge mehr – ${P.MISS_SCORE} Punkte`);
-    } else if (mine && m.done) toast(`Keine Schläge mehr – ${P.MISS_SCORE} Punkte`);
+      if (mine && m.done) toast(`Keine Schläge mehr – nicht eingelocht`);
+    } else if (mine && m.done) toast(`Keine Schläge mehr – nicht eingelocht`);
     renderBoard(); renderHud();
   }
 
@@ -372,7 +383,7 @@
 
   // ------------------------------------------------------------ Spiel-HUD
   $('btnQuit').onclick = () => { if (confirm('Raum verlassen?')) send({ type: 'leave' }); };
-  $('btnSkip').onclick = () => { if (confirm(`Bahn für alle beenden? Wer nicht eingelocht hat, bekommt ${P.MISS_SCORE}.`)) send({ type: 'skip' }); };
+  $('btnSkip').onclick = () => { if (confirm(`Bahn für alle beenden? Wer nicht eingelocht hat, bekommt ${P.config.points.miss} Punkte (+ bisherige Boni).`)) send({ type: 'skip' }); };
 
   function renderHud() {
     if (!room || !map) return;
@@ -399,7 +410,8 @@
 
   function updateMagnetBtn() {
     const p = me(), b = $('btnMagnet');
-    const show = room && room.phase === 'playing' && p && p.ball && !p.sunk && turn && turn.id !== myId && P.config.magnet.usesPerHole > 0;
+    // nur, solange man selbst noch auf der Bahn spielt
+    const show = room && room.phase === 'playing' && p && p.ball && !p.sunk && !p.done && turn && turn.id !== myId && P.config.magnet.usesPerHole > 0;
     b.classList.toggle('hidden', !show);
     if (!show) return;
     const left = p.magnetLeft || 0;
@@ -412,24 +424,33 @@
   $('btnMagnet').onclick = () => { send({ type: 'magnet' }); $('btnMagnet').blur(); };
   window.addEventListener('keydown', (e) => { if (e.code === 'KeyG' && document.activeElement.tagName !== 'INPUT' && !$('btnMagnet').classList.contains('hidden') && !$('btnMagnet').disabled) $('btnMagnet').click(); });
 
-  function total(p) { return p.scores.reduce((a, b) => a + (b || 0), 0); }
+  /** Punkte gesamt (mehr = besser); laufende Bahn zählt ihre Boni schon mit */
+  function total(p) {
+    const pts = (p.points || []).reduce((a, b) => a + (b || 0), 0);
+    const live = room && room.phase === 'playing' && !p.done ? (p.bonus || 0) : 0;
+    return pts + live;
+  }
+  function strokes(p) { return p.scores.reduce((a, b) => a + (b || 0), 0); }
+  /** Rangfolge: mehr Punkte zuerst, bei Gleichstand weniger Schläge */
+  function rankSort(a, c) { return total(c) - total(a) || strokes(a) - strokes(c); }
   function parSum(n) { let s = 0; for (let i = 0; i < n; i++) s += (room.playlist[i] && room.playlist[i].par) || 0; return s; }
 
   function renderBoard() {
     if (!room) return;
     const b = $('board');
-    const ps = room.players.slice().sort((a, c) => total(a) - total(c));
-    let h = '<h4>Rangliste</h4>';
-    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<p class="muted">Schlag ${P.config.sling.shots.join(' & ')}: <b style="color:#00eaff">SLING BALL</b> – Ball mit der Maus lenken.<br>Schlag ${P.config.ultimate.afterShots + 1}: <b style="color:#ff2e88">ULTIMATE BALL</b> – Pucks wegsprengen, Zeitlupe, lenken.</p></div>`;
+    const ps = room.players.slice().sort(rankSort);
+    let h = '<h4>Rangliste <small class="muted">Punkte</small></h4>';
+    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<p class="muted">Schlag ${P.config.sling.shots.join(' & ')}: <b style="color:#00eaff">SLING BALL</b> – Ball mit der Maus lenken.<br>Schlag ${P.config.ultimate.afterShots + 1}: <b style="color:#ff2e88">ULTIMATE BALL</b> – Pucks wegsprengen, Zeitlupe, lenken.</p>${pointsHelp()}</div>`;
     for (const p of ps) {
       const a = anims.get(p.id);
       const rolling = a && !a.done;
       let st;
       if (room.phase === 'lobby') st = '';
-      else if (p.done && !rolling) st = p.sunk ? `⛳ eingelocht mit <b>${p.shots}</b>` : `✖ <b>${P.MISS_SCORE}</b> Punkte`;
+      else if (p.done && !rolling) { const hp = p.points && p.points[room.holeIndex]; st = (p.sunk ? `⛳ eingelocht mit ${p.shots}` : '✖ nicht eingelocht') + (hp != null ? ` · <b>+${hp}</b>` : ''); }
       else st = rolling ? 'rollt …' : `Schlag <b>${p.shots + 1}</b> / ${P.MAX_SHOTS}`;
       const isTurn = room.phase === 'playing' && !!turn && turn.id === p.id;
       if (isTurn && !(p.done && !rolling)) st = (rolling ? 'rollt …' : '▶ <b>am Zug</b>') + ` · Schlag ${p.shots + (rolling ? 0 : 1)}/${P.MAX_SHOTS}`;
+      if (room.phase === 'playing' && !p.done && p.bonus) st += ` · <b style="color:#39ff8a">+${p.bonus} Bonus</b>`;
       if (p.magnet) st += ' · <b style="color:#ffe03a">🧲 Magnet</b>';
       else if (room.phase === 'playing' && !p.done && P.config.magnet.usesPerHole > 0) st += ` · 🧲${p.magnetLeft || 0}`;
       h += `<div class="bp ${p.id === myId ? 'me' : ''} ${isTurn ? 'turn' : ''}"><div class="top">${avatarHtml(p)}<span class="nm">${esc(p.name)}</span>${p.id === room.hostId ? '👑' : ''}<span class="tot">${total(p)}</span></div><div class="st">${st}</div></div>`;
@@ -437,26 +458,31 @@
     b.innerHTML = h + (room.phase === 'lobby' ? '' : legend);
   }
   const DIFF_LABEL = { easy: 'LEICHT', medium: 'MITTEL', hard: 'HART' };
+  function pointsHelp() {
+    const Q = P.config.points;
+    return `<h4 style="margin-top:12px">Punkte</h4><p class="muted pts">Hole-in-One <b>${Q.holeInOne}</b> · Eagle <b>${Q.eagle}</b> · Birdie <b>${Q.birdie}</b> · Par <b>${Q.par}</b> · Bogey <b>${Q.bogey}</b> · schlechter <b>${Q.worse}</b> · nicht eingelocht <b>${Q.miss}</b><br>`
+      + `Bonus: versenkter Puck <b>+${Q.puck}</b> (schwer <b>+${Q.heavyPuck}</b>, max. ${Q.maxPuckBonus}/Bahn) · Einlochen nach ≥${Q.trickBounces} Abprallern <b>+${Q.trickshot}</b></p>`;
+  }
   function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
   function showScoreTable(final) {
     if (!room) return;
     const n = final ? room.playlist.length : room.holeIndex + 1;
-    const ps = room.players.slice().sort((a, c) => total(a) - total(c));
+    const ps = room.players.slice().sort(rankSort);
     let h = `<div class="card"><h2>${final ? '🏆 Endstand' : `Bahn ${room.holeIndex + 1} beendet`}</h2>`;
     h += '<table class="score"><tr><th>Spieler</th>';
     for (let i = 0; i < n; i++) h += `<th title="${esc(room.playlist[i].name)}" class="${room.playlist[i].difficulty === 'hard' ? 'hardcol' : ''}">${i + 1}</th>`;
-    h += '<th>Σ</th><th>±Par</th></tr><tr class="muted"><td>Par</td>';
+    h += '<th>Punkte</th><th>Schläge</th><th>±Par</th></tr><tr class="muted"><td>Par</td>';
     for (let i = 0; i < n; i++) h += `<td>${room.playlist[i].par}</td>`;
-    h += `<td>${parSum(n)}</td><td></td></tr>`;
+    h += `<td></td><td>${parSum(n)}</td><td></td></tr>`;
     ps.forEach((p, k) => {
       h += `<tr class="${final && k === 0 ? 'win' : ''}"><td>${avatarHtml(p)} ${esc(p.name)}</td>`;
       for (let i = 0; i < n; i++) {
-        const s = p.scores[i], par = room.playlist[i].par;
-        h += `<td class="${s == null ? '' : s < par ? 'under' : s > par ? 'over' : ''}">${s == null ? '–' : s}</td>`;
+        const s = p.scores[i], par = room.playlist[i].par, pt = p.points ? p.points[i] : null;
+        h += `<td class="${s == null ? '' : s < par ? 'under' : s > par ? 'over' : ''}">${pt == null ? '–' : `<b>${pt}</b><small class="stk">${s}</small>`}</td>`;
       }
-      const d = total(p) - parSum(n);
-      h += `<td><b>${total(p)}</b></td><td>${d > 0 ? '+' + d : d}</td></tr>`;
+      const d = strokes(p) - parSum(n);
+      h += `<td><b class="ptot">${total(p)}</b></td><td>${strokes(p)}</td><td>${d > 0 ? '+' + d : d}</td></tr>`;
     });
     h += '</table>';
     if (final) {
@@ -488,7 +514,9 @@
     getPucks: () => ({ list: pucks, ver: pucksVer }),
     shotMode: () => nextMode(me()),
     onShoot: (angle, power) => {
-      awaiting = true; send({ type: 'shot', angle, power });
+      // welche Magnete waren in meiner Vorschau? (Server ignoriert ganz frische, die ich noch nicht sehen konnte)
+      const mags = room.players.filter((q) => q.id !== myId && q.magnet && q.ball && !q.sunk).map((q) => q.id);
+      awaiting = true; send({ type: 'shot', angle, power, mags });
       setTimeout(() => { awaiting = false; }, 3000);
     },
   });

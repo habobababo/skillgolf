@@ -8,10 +8,12 @@ Multiplayer-Minigolf im Browser mit eigenem Map-Editor.
 - **SLING BALL**: Schlag 2 und 4 sind Sling-Schläge. Nach dem Abschlag lenkst du den Ball 2,5 Sekunden lang mit der Maus, in leichter Zeitlupe.
 - **ULTIMATE BALL**: Nach 5 Schlägen erscheint „next BALL is ULTIMATE BALL“, und der nächste Schlag ist erzwungen ein Ultimate-Schlag. Der Ball startet mit halber Geschwindigkeit, ein Stoß schleudert alle Pucks weg, dann läuft das Spiel in Zeitlupe und du steuerst den Ball 6 Sekunden lang mit der Maus. Die anderen Spieler sehen das live und können währenddessen nicht schlagen.
 - **Profilbilder**: Jeder Spieler kann im Menü ein Bild hochladen, es erscheint auf seinem Ball. Standardbilder pro Platz legst du als `public/avatars/player1.jpg` … `player8.jpg` ab (auch `.png`/`.webp`). Sie gelten für Spieler ohne eigenes Bild und liegen per `.gitignore` nicht im Repo.
-- **7 Schläge pro Bahn.** Wer danach nicht eingelocht hat, bekommt 8 Punkte.
+- **Schwarzes Loch**: Das Loch zieht in seinem Umkreis alles an, also Ball, Pucks und sogar die Funken. Schnelle Bälle werden in einer Kurve abgelenkt, langsame fallen hinein. Pucks, die hineingeraten, werden verschluckt. Die Vorschau zeigt auch das exakt.
+- **Punktesystem (mehr ist besser)**: Pro Bahn gibt es Punkte nach Schlägen im Vergleich zum Par. Hole-in-One 10, Eagle 7, Birdie 5, Par 3, Bogey 2, schlechter 1, nicht eingelocht 0. Dazu kommen Boni: +1 pro Puck, den dein Schlag versenkt (im Wasser oder im schwarzen Loch), bei schweren Pucks +2, höchstens 5 pro Bahn. Ein **Trickshot** bringt +2, wenn der einlochende Schlag mindestens 3 Abpraller hatte. Die Rangliste sortiert nach Punkten, bei Gleichstand nach weniger Schlägen.
+- **7 Schläge pro Bahn.**
 - **Flugbahn-Vorschau** bis zum Stillstand, inklusive Abprallern, Hängen, Boosts, Wasser und Loch. Server und Client nutzen dieselbe deterministische Physik (`shared/physics.js`), deshalb stimmt die Vorschau exakt.
 - **Multiplayer reihum**: Räume mit 4-stelligem Code, bis zu 8 Spieler. Wer den Einladungslink öffnet, ist sofort im Raum und kann den Namen in der Lobby ändern. Es wird abwechselnd geschlagen, wer dran ist, sieht groß „DU BIST DRAN“. Jede Bahn beginnt ein anderer Spieler, und jeder Zug hat ein Zeitlimit. Liegende Gegnerbälle sind Hindernisse.
-- **MAGNETISIEREN**: Wer gerade wartet, kann seinen liegenden Ball per Knopf (oder Taste `G`) zum Magneten machen. Er zieht dann den Ball des Schützen beim nächsten Schlag stark an. Der Schütze sieht das Magnetfeld und die verbogene Flugbahn in der Vorschau. Pro Bahn gibt es 2 Ladungen.
+- **MAGNETISIEREN**: Wer gerade wartet und auf der Bahn selbst noch im Spiel ist (also nicht eingelocht und nicht ohne Schläge), kann seinen liegenden Ball per Knopf (oder Taste `G`) zum Magneten machen. Er zieht dann den Ball des Schützen beim nächsten Schlag stark an. Der Schütze sieht das Magnetfeld und die verbogene Flugbahn in der Vorschau. Pro Bahn gibt es 2 Ladungen. Ein Magnet, der erst kurz vor dem Schlag aktiviert wird und in der Vorschau des Schützen noch nicht zu sehen war, gilt erst ab dem nächsten Schlag. So stimmt die Vorschau immer.
 - **16 eingebaute Bahnen** in drei Stufen: LEICHT, MITTEL und HART. Harte Bahnen sind rot markiert. In der Lobby sind die Bahnen nach Stufen gruppiert, mit Knöpfen zum Hinzufügen ganzer Stufen. Neue Räume starten mit allen leichten und mittleren Bahnen. Eigene Bahnen erstellst du im Editor (`/editor`) und speicherst sie auf dem Server (`maps/custom/`). Export und Import als JSON gehen auch.
 
 ## Start
@@ -36,11 +38,16 @@ nano config.json
 | `speedCap` | 5000 | Absolute Höchstgeschwindigkeit, z. B. nach Boosts |
 | `dragDistance` | 320 | Ziehweg in Bildschirm-Pixeln für 100 % Kraft |
 | `maxShots` | 7 | Schläge pro Bahn |
-| `missPenalty` | 1 | Nicht eingelocht ergibt `maxShots + missPenalty` Punkte |
+| `missPenalty` | 1 | Nicht eingelocht ergibt `maxShots + missPenalty` Schläge in der Statistik |
 | `waterPenalty` | 0 | Strafschläge bei Wasser |
 | `ballRadius` / `holeRadius` | 8 / 14 | Größe von Ball und Loch |
 | `captureSpeed` | 560 | Ist der Ball langsamer, fällt er ins Loch |
 | `holePull` | 2600 | Sog am Lochrand |
+| `blackHole.radius` / `blackHole.strength` | 240 / 1500 | Reichweite und Anziehung (px/s² im Zentrum) des schwarzen Lochs, `0` = aus |
+| `blackHole.puckFactor` | 1 | Wie stark Pucks angezogen werden (schwere zusätzlich weniger) |
+| `points.holeInOne/eagle/birdie/par/bogey/worse/miss` | 10/7/5/3/2/1/0 | Punkte pro Bahn |
+| `points.puck` / `points.heavyPuck` / `points.maxPuckBonus` | 1 / 2 / 5 | Bonus pro versenktem Puck, für schwere Pucks, Höchstwert pro Bahn |
+| `points.trickshot` / `points.trickBounces` | 2 / 3 | Trickshot-Bonus und nötige Abpraller |
 | `maxShotTime` | 40 | Ein Schlag endet spätestens nach so vielen Sekunden |
 | `surfaces.grass/sand/ice` | | `decel` = feste Bremsung, `drag` = Bremsung abhängig vom Tempo |
 | `bounce.wall/block/border/bumper/ball` | | Rückprall (1 = verlustfrei, über 1 = beschleunigt) |

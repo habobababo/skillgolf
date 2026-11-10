@@ -230,27 +230,47 @@
   }
 
   function drawHole(ctx, h, t) {
-    const R = P.HOLE_R;
+    const R = P.HOLE_R, BH = P.config.blackHole, F = BH.radius > 0 && BH.strength > 0 ? BH.radius : R * 4;
     ctx.save();
-    // Aura
-    const g = ctx.createRadialGradient(h.x, h.y, R * 0.5, h.x, h.y, R * 4);
-    g.addColorStop(0, 'rgba(180,120,255,0.35)'); g.addColorStop(1, 'rgba(180,120,255,0)');
     ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(h.x, h.y, R * 4, 0, 7); ctx.fill();
-    // Wirbel-Bögen
-    ctx.lineCap = 'round';
-    for (let i = 0; i < 3; i++) {
-      const rr = R + 5 + i * 6, a0 = t * (2.4 - i * 0.6) * (i % 2 ? -1 : 1) + i * 2;
-      ctx.strokeStyle = ['rgba(0,234,255,0.9)', 'rgba(255,46,200,0.75)', 'rgba(255,255,255,0.5)'][i];
-      ctx.lineWidth = 2.5 - i * 0.5;
-      ctx.beginPath(); ctx.arc(h.x, h.y, rr, a0, a0 + 1.6); ctx.stroke();
-      ctx.beginPath(); ctx.arc(h.x, h.y, rr, a0 + Math.PI, a0 + Math.PI + 1.6); ctx.stroke();
+    // Wirkungsbereich: schwacher violetter Schleier + pulsierende Ringe, die nach innen laufen
+    const g = ctx.createRadialGradient(h.x, h.y, R, h.x, h.y, F);
+    g.addColorStop(0, 'rgba(150,70,255,0.30)'); g.addColorStop(0.35, 'rgba(90,30,200,0.12)'); g.addColorStop(1, 'rgba(60,20,160,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(h.x, h.y, F, 0, 7); ctx.fill();
+    for (let i = 0; i < 4; i++) {
+      const f = 1 - ((t * 0.35 + i / 4) % 1), rr = R + (F - R) * f * f;
+      ctx.strokeStyle = `rgba(180,120,255,${0.22 * (1 - f)})`; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(h.x, h.y, rr, 0, 7); ctx.stroke();
     }
+    // Akkretionsscheibe: Spiralarme, die sich ins Zentrum drehen
+    ctx.lineCap = 'round';
+    const arms = 5, dr = Math.min(F * 0.55, R * 7);
+    for (let k = 0; k < arms; k++) {
+      const base = -t * 1.8 + k * (Math.PI * 2 / arms);
+      ctx.strokeStyle = k % 2 ? 'rgba(255,90,210,0.55)' : 'rgba(0,234,255,0.5)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let j = 0; j <= 24; j++) {
+        const u = j / 24, rr = R + dr * u, a = base + u * 3.2;
+        const x = h.x + Math.cos(a) * rr, y = h.y + Math.sin(a) * rr * 0.92;
+        if (j) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+      }
+      ctx.globalAlpha = 0.9; ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    // Photonenring (Linsen-Effekt)
+    glow(ctx, '#ffb3ff', 22);
+    ctx.strokeStyle = 'rgba(255,220,255,0.95)'; ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.arc(h.x, h.y, R + 3 + Math.sin(t * 6) * 0.8, 0, 7); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,150,60,0.6)'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(h.x, h.y, R + 7, t * 2.2, t * 2.2 + 2.2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(h.x, h.y, R + 7, t * 2.2 + Math.PI, t * 2.2 + Math.PI + 2.2); ctx.stroke();
+    noGlow(ctx);
+    // Ereignishorizont: absolut schwarz
     ctx.globalCompositeOperation = 'source-over';
-    const hg = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, R);
-    hg.addColorStop(0, '#000'); hg.addColorStop(0.7, '#05030f'); hg.addColorStop(1, '#3a1d7a');
-    ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(h.x, h.y, R, 0, 7); ctx.fill();
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; glow(ctx, '#b47cff', 12); ctx.stroke();
+    const hg = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, R + 2);
+    hg.addColorStop(0, '#000'); hg.addColorStop(0.85, '#000'); hg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(h.x, h.y, R + 2, 0, 7); ctx.fill();
     ctx.restore();
   }
 
@@ -494,15 +514,20 @@
     flashOf(idx) { return this.flashes.get(idx) || 0; }
     shake(a) { this.shakeAmt = Math.min(18, Math.max(this.shakeAmt, a)); }
     screen(alpha, rgb) { this.screenFlash = Math.max(this.screenFlash, alpha); this.flashColor = rgb || '255,255,255'; }
-    /** Hintergrund-Emitter: Lochwirbel & Boost-Funken */
+    /** Hintergrund-Emitter: schwarzes Loch saugt Sternenstaub ein, Boost-Funken */
     ambient(map, dt) {
+      const h = map.hole, BH = P.config.blackHole;
+      this.hole = h && BH.radius > 0 && BH.strength > 0 ? { x: h.x, y: h.y, R: BH.radius } : null;
       this.amb += dt;
       if (this.amb < 1 / 60) return;
       this.amb = 0;
-      const h = map.hole;
       if (h && this.parts.length < 2000) {
-        const a = Math.random() * Math.PI * 2, d = 34 + Math.random() * 18;
-        this.parts.push({ x: h.x + Math.cos(a) * d, y: h.y + Math.sin(a) * d, vx: Math.cos(a + 1.9) * 70, vy: Math.sin(a + 1.9) * 70, t: 0, life: 0.9, color: Math.random() < 0.5 ? '#00eaff' : '#c36bff', size: 1.6, drag: 1, kind: 'dot', pull: { x: h.x, y: h.y, k: 420 } });
+        const F = this.hole ? this.hole.R : 50;
+        for (let i = 0; i < 2; i++) {
+          const a = Math.random() * Math.PI * 2, d = F * (0.4 + Math.random() * 0.6);
+          const sp = 40 + Math.random() * 60;
+          this.parts.push({ x: h.x + Math.cos(a) * d, y: h.y + Math.sin(a) * d, vx: Math.cos(a + 1.75) * sp, vy: Math.sin(a + 1.75) * sp, t: 0, life: 2.2, color: ['#00eaff', '#c36bff', '#ff5edb', '#ffffff'][(Math.random() * 4) | 0], size: 1.4, drag: 0.6, kind: 'dot', pull: { x: h.x, y: h.y, k: 300 } });
+        }
       }
       for (const o of map.objects || []) {
         if (o.type !== 'boost' || Math.random() > 0.35) continue;
@@ -515,6 +540,10 @@
         const p = this.parts[i]; p.t += dt;
         if (p.t >= p.life) { this.parts[i] = this.parts[this.parts.length - 1]; this.parts.pop(); continue; }
         if (p.pull) { const dx = p.pull.x - p.x, dy = p.pull.y - p.y, d = Math.hypot(dx, dy) || 1; p.vx += dx / d * p.pull.k * dt; p.vy += dy / d * p.pull.k * dt; if (d < 4) p.t = p.life; }
+        else if (this.hole) { // alles wird vom schwarzen Loch angezogen
+          const H = this.hole, dx = H.x - p.x, dy = H.y - p.y, d = Math.hypot(dx, dy) || 1;
+          if (d < H.R) { const f = 1 - d / H.R, k = 900 * f * f; p.vx += dx / d * k * dt; p.vy += dy / d * k * dt; if (d < P.HOLE_R * 0.6) p.t = p.life; }
+        }
         const k = Math.exp(-p.drag * dt); p.vx *= k; p.vy *= k;
         p.x += p.vx * dt; p.y += p.vy * dt;
       }
@@ -616,6 +645,7 @@
     puck(v, m) { const vol = clamp(v / 1500, 0.04, 0.4); this.tone(clamp(420 / Math.pow(m, 0.35), 70, 600), 0.09 + Math.min(0.2, m * 0.012), 'triangle', vol, 60); this.noise(0.05, vol * 0.5, 1800, 300); }
     fanfare() { [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => { this.tone(f, 0.45, 'square', 0.07, null, i * 0.09); this.tone(f * 2, 0.3, 'triangle', 0.08, null, i * 0.09); }); }
     sand() { this.noise(0.25, 0.12, 900, 300); }
+    swallow() { this.tone(420, 0.6, 'sine', 0.22, 40); this.tone(90, 0.7, 'sawtooth', 0.08, 30); this.noise(0.5, 0.14, 2500, 120, 0, 'bandpass'); }
     tension(p) {
       if (!this.ok()) { this.stopTension(); return; }
       if (!this.tens) {
@@ -736,7 +766,8 @@
       const pk = this.opts.getPucks ? this.opts.getPucks() : null;
       const mode = this.opts.shotMode ? this.opts.shotMode() : null;
       const kick = mode === 'ult';
-      const key = ball.x + ',' + ball.y + ',' + this.angle.toFixed(5) + ',' + pw.toFixed(4) + ',' + maxTime + ',' + (pk ? pk.ver : 0) + ',' + mode;
+      // volle Genauigkeit: gerundete Schlüssel ließen eine veraltete Vorschau stehen, obwohl mit dem exakten Winkel geschlagen wird
+      const key = ball.x + ',' + ball.y + ',' + this.angle + ',' + pw + ',' + maxTime + ',' + (pk ? pk.ver : 0) + ',' + mode;
       if (key !== this.predKey || cm !== this.predCm) {
         const v = P.shotVelocity(this.angle, pw, mode);
         this.pred = P.simulate(cm, ball.x, ball.y, v.vx, v.vy, { record: true, every: 2, maxTime, pucks: pk ? pk.list : null, kick });
@@ -929,6 +960,12 @@
         fx.spark(e.x, e.y, '#5aa0ff', 30, 260, { life: 0.7, kind: 'dot', drag: 4, size: 2.2 });
         fx.ring(e.x, e.y, PUCK_COL[e.c] || '#2f7bff', 40, 0.6, 3);
         if (sfx) sfx.splash();
+      } else if (e.type === 'swallow') {
+        const c = PUCK_COL[e.c] || '#fff';
+        fx.spark(e.x, e.y, c, 26, 220, { life: 0.8, kind: 'dot', pull: { x: map.hole.x, y: map.hole.y, k: 1600 } });
+        fx.spark(e.x, e.y, '#c36bff', 20, 160, { life: 0.9, kind: 'dot', pull: { x: map.hole.x, y: map.hole.y, k: 1200 } });
+        fx.ring(map.hole.x, map.hole.y, c, 70, 0.5, 4); fx.shake(3);
+        if (sfx) sfx.swallow();
       } else if (e.type === 'ult') {
         const U = P.config.ultimate;
         for (let i = 0; i < 4; i++) fx.rings.push({ x: e.x, y: e.y, color: i % 2 ? '#ff2e88' : '#b45cff', r: 180 + i * 240, dur: 0.9 + i * 0.25, t: -i * 0.12, w: 8 - i });
