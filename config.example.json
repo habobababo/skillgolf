@@ -81,6 +81,12 @@
     "repel": {
       "radius": 210,
       "strength": 1100
+    },
+    "bombs": {
+      "count": 2,
+      "fuse": 5,
+      "radius": 280,
+      "force": 2600
     }
   },
   "ultimate": {

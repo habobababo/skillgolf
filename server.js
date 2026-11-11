@@ -133,7 +133,7 @@ function publicRoom(room) {
   return {
     code: room.code, hostId: room.hostId, phase: room.phase, holeIndex: room.holeIndex,
     playlist: room.playlist, settings: room.settings, ultBy: room.ult ? room.ult.pid : null,
-    turn: publicTurn(room),
+    turn: publicTurn(room), fuses: publicFuses(room),
     players: room.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, ultUsed: !!p.ultUsed, scores: p.scores, points: p.points, bonus: p.bonus || 0, shots: p.shots, done: p.done, sunk: p.sunk,
       magnet: !!p.magnet, magnetPuck: p.magnet && p.magnetPuck != null ? p.magnetPuck : null, magnetLeft: p.magnetLeft ?? 0,
@@ -158,6 +158,7 @@ function startHole(room) {
   room.cm = P.compile(map);
   room.pucks = P.spawnPucks(room.cm, (Math.random() * 2 ** 31) | 0);
   room.glass = []; // zerbrochene Glaswände (Objekt-Indizes) – gilt für alle bis zum Bahnende
+  stopFuses(room); room.fuse = {}; room.blastUntil = 0;
   endUltimate(room, true);
   for (const p of room.players) {
     p.ball = { x: room.cm.start.x, y: room.cm.start.y };
@@ -171,6 +172,64 @@ function startHole(room) {
   // reihum: jede Bahn beginnt ein anderer Spieler
   clearTurn(room);
   beginTurn(room, room.players[room.holeIndex % room.players.length].id);
+}
+
+// ---------------------------------------------------------------- Bomben-Pucks
+/*
+ * room.fuse = { pucksIndex: Restzeit in ms }. Eine Bombe wird im Schlag scharf (Physik), der Countdown
+ * läuft aber nur, während jemand zielt (Phase 'aim') – nie während ein Ball rollt. So bleibt die
+ * Vorschau exakt. Bei 0 explodiert sie; Pucks und liegende Bälle fliegen weg.
+ */
+function publicFuses(room) {
+  const f = room.fuse || {}, run = room.fuseRun;
+  const el = run ? Date.now() - run.start : 0;
+  return { ticking: !!run, list: Object.keys(f).map((i) => [Number(i), Math.max(0, f[i] - el)]) };
+}
+function noteArmed(room) {
+  room.fuse = room.fuse || {};
+  (room.pucks || []).forEach((q, i) => { if (q.alive && q.bomb && q.armed && !(i in room.fuse)) room.fuse[i] = P.config.pucks.bombs.fuse * 1000; });
+  for (const i of Object.keys(room.fuse)) if (!room.pucks[i] || !room.pucks[i].alive) delete room.fuse[i];
+}
+function pauseFuses(room) {
+  const run = room.fuseRun;
+  if (!run) return;
+  clearTimeout(run.timer); room.fuseRun = null;
+  const el = Date.now() - run.start;
+  for (const i of Object.keys(room.fuse)) room.fuse[i] = Math.max(1, room.fuse[i] - el);
+}
+function stopFuses(room) { if (room.fuseRun) clearTimeout(room.fuseRun.timer); room.fuseRun = null; }
+function startFuses(room) {
+  stopFuses(room);
+  const keys = Object.keys(room.fuse || {});
+  if (!keys.length || room.phase !== 'playing') return;
+  const min = Math.min(...keys.map((i) => room.fuse[i]));
+  room.fuseRun = { start: Date.now(), timer: setTimeout(() => fuseExpired(room), min) };
+}
+function fuseExpired(room) {
+  const t = room.turn;
+  pauseFuses(room);
+  if (!t || t.phase !== 'aim' || room.phase !== 'playing') return;
+  const i = Number(Object.keys(room.fuse).sort((a, b) => room.fuse[a] - room.fuse[b])[0]);
+  if (!(room.fuse[i] <= 1)) return startFuses(room);
+  delete room.fuse[i];
+  const balls = room.players.filter((q) => q.ball && !q.sunk).map((q) => ({ id: q.id, x: q.ball.x, y: q.ball.y }));
+  const pucks0 = room.pucks, glass0 = room.glass || [];
+  const r = P.blast(room.cm, pucks0, balls, glass0, i);
+  room.pucks = r.pucks; room.glass = r.glass;
+  for (const b of r.balls) { const q = room.players.find((x) => x.id === b.id); if (q) q.ball = { x: b.x, y: b.y }; }
+  noteArmed(room);
+  // Zug pausieren, bis die Explosion ausgerollt ist; dann bekommt der Spieler am Zug neu Zeit
+  clearTimeout(t.timer);
+  t.phase = 'blast'; t.deadline = 0;
+  const ms = r.time * 1000 + 700;
+  room.blastUntil = Date.now() + ms;
+  broadcast(room, { type: 'blast', idx: i, balls0: balls, pucks0, glass0, pucks: r.pucks, balls: r.balls, glass: r.glass });
+  syncRoom(room);
+  setTimeout(() => {
+    if (room.turn !== t || room.phase !== 'playing') return;
+    const q = room.players.find((x) => x.id === t.id);
+    if (q && !q.done) beginTurn(room, t.id); else endTurn(room); // Spieler weg/fertig -> Nächster
+  }, ms);
 }
 
 // ---------------------------------------------------------------- Züge (reihum)
@@ -189,6 +248,7 @@ function publicTurn(room) {
   return { id: t.id, seq: t.seq, phase: t.phase, left: t.deadline ? Math.max(0, t.deadline - Date.now()) : 0 };
 }
 function clearTurn(room) {
+  pauseFuses(room);
   if (room.turn) { clearTimeout(room.turn.timer); clearTimeout(room.turn.force); }
   room.turn = null;
 }
@@ -210,6 +270,7 @@ function beginTurn(room, id) {
     broadcast(room, { type: 'toast', text: `⏱ ${q ? q.name : 'Spieler'}: Zeit abgelaufen – +1 Schlag` });
     endTurn(room);
   }, T * 1000);
+  startFuses(room); // Bomben-Countdown läuft nur beim Zielen
   syncRoom(room);
   broadcast(room, { type: 'turn', turn: publicTurn(room) });
 }
@@ -217,6 +278,7 @@ function beginTurn(room, id) {
 function turnFlight(room) {
   const t = room.turn;
   clearTimeout(t.timer);
+  pauseFuses(room);
   t.phase = 'flight'; t.deadline = 0; t.resolved = false;
   t.expect = new Set(room.players.filter((q) => q.ws.readyState === 1).map((q) => q.id));
   t.acks = new Set();
@@ -330,6 +392,7 @@ function applyResult(room, p, from, r, busyMs, pucks0) {
   p.bonus = (p.bonus || 0) + puckPts + b.trick;
   room.pucks = r.pucks;
   room.glass = r.glass || room.glass;
+  noteArmed(room);
   if (r.result === 'water') { p.ball = from; p.shots = Math.min(P.MAX_SHOTS, p.shots + P.config.waterPenalty); } else p.ball = { x: r.x, y: r.y };
   if (r.result === 'sunk') finishPlayer(room, p, true);
   else if (p.shots >= P.MAX_SHOTS) finishPlayer(room, p, false);
@@ -340,7 +403,7 @@ function applyResult(room, p, from, r, busyMs, pucks0) {
 function handleShot(room, p, msg) {
   if (room.phase !== 'playing' || p.done || room.ult) return;
   const t = room.turn;
-  if (!t || t.id !== p.id || t.phase !== 'aim') return send(p.ws, { type: 'error', text: 'Du bist nicht dran' });
+  if (!t || t.id !== p.id || t.phase !== 'aim') return send(p.ws, { type: t && t.phase === 'blast' ? 'toast' : 'error', text: t && t.phase === 'blast' ? '💥 Warte, bis die Explosion vorbei ist' : 'Du bist nicht dran' });
   const angle = Number(msg.angle), power = Math.max(0, Math.min(1, Number(msg.power)));
   if (!Number.isFinite(angle) || !Number.isFinite(power) || power < 0.01) return;
   const mode = nextMode(p);
@@ -403,7 +466,7 @@ function finishUltimate(room) {
   const p = room.players.find((q) => q.id === u.pid);
   const r = P.simulate(u.cm, u.from.x, u.from.y, u.vx, u.vy, { pucks: u.pucks0, glass: u.glass0, kick: u.mode === 'ult', inputs: u.inputs });
   const seq = room.turn ? room.turn.seq : 0;
-  if (!p) { room.pucks = r.pucks; room.glass = r.glass; broadcast(room, { type: 'shotEnd', seq, id: u.pid, pucks: r.pucks, glass: r.glass, gone: true }); turnResolved(room, 0); return; }
+  if (!p) { room.pucks = r.pucks; room.glass = r.glass; noteArmed(room); broadcast(room, { type: 'shotEnd', seq, id: u.pid, pucks: r.pucks, glass: r.glass, gone: true }); turnResolved(room, 0); return; }
   const steerT = (u.inputs.length / 2) * P.DT;
   const rest = Math.max(0, r.time - steerT) * 1000;
   const gain = applyResult(room, p, u.from, r, rest, u.pucks0);

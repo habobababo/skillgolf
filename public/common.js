@@ -369,11 +369,12 @@
   }
 
   /** Pucks: Farbe & Stil zeigen das Gewicht (grün leicht, gelb mittel, rot schwer) */
-  function drawPucks(ctx, pucks, t) {
+  /** fuses: { pucksIndex: Restsekunden } für scharfe Bomben (fehlt = volle Zeit, läuft noch nicht) */
+  function drawPucks(ctx, pucks, t, fuses) {
     if (!pucks) return;
     // Felder zuerst (unter den Pucks)
     for (const q of pucks) {
-      if (!q.alive || !q.f) continue;
+      if (!q.alive || !q.f || q.pb != null) continue;
       const F = P.config.pucks[q.f], col = FIELD_COL[q.f], R = F.radius;
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
       const g = ctx.createRadialGradient(q.x, q.y, q.r, q.x, q.y, R);
@@ -388,8 +389,10 @@
       ctx.globalAlpha = 0.25; ctx.setLineDash([4, 8]); ctx.beginPath(); ctx.arc(q.x, q.y, R, 0, 7); ctx.stroke(); ctx.setLineDash([]);
       ctx.restore();
     }
-    for (const q of pucks) {
-      if (!q.alive) continue;
+    for (let qi = 0; qi < pucks.length; qi++) {
+      const q = pucks[qi];
+      if (!q.alive || q.pb != null) continue;
+      if (q.bomb) { drawBomb(ctx, q, t, fuses ? fuses[qi] : null); continue; }
       const col = PUCK_COL[q.c] || '#fff', r = q.r;
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.beginPath(); ctx.arc(q.x + 2, q.y + 3, r, 0, 7); ctx.fill();
@@ -429,6 +432,47 @@
       }
       ctx.restore();
     }
+  }
+
+  /** Bomben-Puck: schwarze Kugel mit Zündschnur; scharf = Countdown-Ring + Sekunden */
+  function drawBomb(ctx, q, t, left) {
+    const r = q.r, F = P.config.pucks.bombs.fuse;
+    const armed = !!q.armed, sec = armed ? (left == null ? F : left) : null;
+    const urgent = armed && sec < 2;
+    const blink = armed ? (Math.sin(t * (urgent ? 30 : 10)) > 0) : false;
+    ctx.save();
+    if (armed) { // Explosionsradius andeuten
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = `rgba(255,60,40,${urgent ? 0.5 : 0.22})`; ctx.setLineDash([6, 10]); ctx.lineDashOffset = -t * 40; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(q.x, q.y, P.config.pucks.bombs.radius, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.beginPath(); ctx.arc(q.x + 2, q.y + 3, r, 0, 7); ctx.fill();
+    const g = ctx.createRadialGradient(q.x - r * 0.4, q.y - r * 0.4, 1, q.x, q.y, r);
+    g.addColorStop(0, blink ? '#ff6040' : '#4a4a5a'); g.addColorStop(1, '#0a0a10');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, 7); ctx.fill();
+    glow(ctx, armed ? '#ff3a2a' : '#ff9a3c', armed ? 18 : 8);
+    ctx.strokeStyle = armed ? '#ff3a2a' : '#ff9a3c'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(q.x, q.y, r - 1, 0, 7); ctx.stroke();
+    noGlow(ctx);
+    // Zündschnur mit Funken
+    const fx0 = q.x + r * 0.55, fy0 = q.y - r * 0.75;
+    ctx.strokeStyle = '#d8c39a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(fx0, fy0); ctx.quadraticCurveTo(fx0 + 6, fy0 - 8, fx0 + 3, fy0 - 12); ctx.stroke();
+    ctx.globalCompositeOperation = 'lighter';
+    const sp = armed ? 4 + Math.random() * 3 : 2 + Math.sin(t * 8) * 0.8;
+    ctx.fillStyle = armed ? '#ffd23a' : 'rgba(255,170,60,0.8)'; ctx.beginPath(); ctx.arc(fx0 + 3, fy0 - 12, sp, 0, 7); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    // Countdown
+    if (armed) {
+      const fr = Math.max(0, Math.min(1, sec / F));
+      ctx.strokeStyle = urgent ? '#ff3a2a' : '#ffd23a'; ctx.lineWidth = 3.5; glow(ctx, ctx.strokeStyle, 10);
+      ctx.beginPath(); ctx.arc(q.x, q.y, r + 7, -Math.PI / 2, -Math.PI / 2 + fr * Math.PI * 2); ctx.stroke(); noGlow(ctx);
+      ctx.font = `900 ${urgent ? 18 : 15}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const label = left == null ? `${Math.ceil(F)}` : `${Math.ceil(sec)}`;
+      ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.strokeText(label, q.x, q.y - r - 18);
+      ctx.fillStyle = urgent ? '#ff3a2a' : '#ffffff'; glow(ctx, '#ff3a2a', 10); ctx.fillText(label, q.x, q.y - r - 18); noGlow(ctx);
+      if (left == null) { ctx.font = '700 9px system-ui, sans-serif'; ctx.fillStyle = 'rgba(255,220,150,0.85)'; ctx.fillText('nach dem Zug', q.x, q.y + r + 12); }
+    }
+    ctx.restore();
   }
 
   /** Leuchtschweif (Kurve) – pts: [x,y,...]; head = Anteil der letzten Punkte, die hell leuchten */
@@ -743,6 +787,12 @@
       if (this.hum) { const t = this.ac.currentTime; this.hum.g.gain.setValueAtTime(0.004, t); this.hum.g.gain.setTargetAtTime(0.035, t + 0.05, 0.03); }
     }
     band(v) { const vol = clamp(v / 1400, 0.08, 0.35); this.tone(140, 0.28, 'sine', vol, 420); this.tone(70, 0.3, 'triangle', vol * 0.6, 200); }
+    arm() { this.tone(1200, 0.06, 'square', 0.08); this.tone(1600, 0.06, 'square', 0.08, null, 0.08); this.noise(0.3, 0.06, 6000, 3000, 0, 'highpass'); }
+    fuseTick(urgent) { this.tone(urgent ? 1500 : 1000, 0.05, 'square', urgent ? 0.1 : 0.06); }
+    boom() {
+      this.noise(1.4, 0.7, 1800, 60); this.tone(70, 1.0, 'sine', 0.6, 25); this.tone(140, 0.5, 'sawtooth', 0.15, 40);
+      this.noise(0.25, 0.4, 8000, 1500, 0, 'highpass');
+    }
     glass() {
       this.noise(0.5, 0.35, 9000, 2500, 0, 'highpass');
       for (let i = 0; i < 7; i++) this.tone(2000 + Math.random() * 3500, 0.12 + Math.random() * 0.2, 'sine', 0.05 + Math.random() * 0.05, null, Math.random() * 0.25);
@@ -1029,6 +1079,41 @@
     }
   }
 
+  /** Explosion zwischen den Zügen als Animation (gleiche Physik wie der Server) */
+  class BlastAnim {
+    constructor(cm, pucks0, balls0, glass0, idx) {
+      this.cm = cm; this.s = P.blastState(cm, pucks0 || [], balls0 || [], glass0 || [], idx);
+      this.acc = 0; this.events = []; this.trail = []; this.fade = 0; this.timeScale = 1; this.blast = true;
+      this.pp = this.s.pucks.map((q) => [q.x, q.y]);
+      this.flush();
+    }
+    flush() { if (this.s.pevents.length) { for (const e of this.s.pevents) this.events.push(e); this.s.pevents.length = 0; } }
+    update(dt) {
+      if (this.s.allDone) { this.fade += dt; return; }
+      this.acc += Math.min(dt, 0.1);
+      let guard = 0;
+      while (this.acc >= P.DT && !this.s.allDone && guard++ < 800) {
+        for (let i = 0; i < this.s.pucks.length; i++) { this.pp[i][0] = this.s.pucks[i].x; this.pp[i][1] = this.s.pucks[i].y; }
+        P.step(this.cm, this.s); this.acc -= P.DT; this.flush();
+      }
+    }
+    get done() { return this.s.allDone; }
+    get ballDone() { return true; }
+    get steering() { return false; }
+    get alpha() { return this.s.allDone ? 1 : Math.max(0, Math.min(1, this.acc / P.DT)); }
+    body(i) { const q = this.s.pucks[i], a = this.alpha; return { ...q, x: this.pp[i][0] + (q.x - this.pp[i][0]) * a, y: this.pp[i][1] + (q.y - this.pp[i][1]) * a }; }
+    get pucks() { const out = []; for (let i = 0; i < this.s.pucks.length; i++) if (this.s.pucks[i].pb == null) out.push(this.body(i)); return out; }
+    /** aktuelle Position eines Spielerballs (oder null) */
+    ballPos(id) {
+      for (let i = 0; i < this.s.pucks.length; i++) {
+        const q = this.s.pucks[i];
+        if (q.pb !== id) continue;
+        return q.alive ? this.body(i) : (this.s.allDone ? { x: q.ox, y: q.oy } : null);
+      }
+      return null;
+    }
+  }
+
   /** Effekte zu einer laufenden Ball-Animation erzeugen */
   function animFx(a, fx, sfx, color, map, dt) {
     const objs = map.objects || [];
@@ -1070,6 +1155,19 @@
         fx.spark(e.x, e.y, '#5aa0ff', 30, 260, { life: 0.7, kind: 'dot', drag: 4, size: 2.2 });
         fx.ring(e.x, e.y, PUCK_COL[e.c] || '#2f7bff', 40, 0.6, 3);
         if (sfx) sfx.splash();
+      } else if (e.type === 'arm') {
+        fx.spark(e.x, e.y, '#ffd23a', 14, 200, { life: 0.4 }); fx.ring(e.x, e.y, '#ff3a2a', 34, 0.35, 3);
+        if (sfx) sfx.arm();
+      } else if (e.type === 'boom') {
+        const R = P.config.pucks.bombs.radius;
+        for (let i = 0; i < 3; i++) fx.rings.push({ x: e.x, y: e.y, color: ['#ffd23a', '#ff6a1a', '#ff2a2a'][i], r: R * (0.5 + i * 0.3), dur: 0.5 + i * 0.15, t: -i * 0.06, w: 9 - i * 2 });
+        fx.spark(e.x, e.y, '#ffd23a', 70, 900, { life: 0.8, drag: 2.5 });
+        fx.spark(e.x, e.y, '#ff4a1a', 60, 650, { life: 1.0, drag: 2 });
+        fx.spark(e.x, e.y, '#ffffff', 25, 1100, { life: 0.35 });
+        for (let i = 0; i < 14; i++) fx.spark(e.x + (Math.random() - 0.5) * 40, e.y + (Math.random() - 0.5) * 40, 'rgba(120,110,120,0.7)', 1, 60, { life: 1.6, kind: 'smoke', drag: 1.5, size: 4 });
+        fx.text(e.x, e.y - 30, 'BOOM!', '#ff6a1a', 46);
+        fx.shake(16); fx.screen(0.6, '255,140,60');
+        if (sfx) sfx.boom();
       } else if (e.type === 'glass') {
         const o = objs[e.src];
         if (o) { // Splitter entlang der ganzen Scheibe
@@ -1125,7 +1223,7 @@
     }
     a.events.length = 0;
     // fortlaufende Effekte
-    if (!a.ballDone) {
+    if (!a.ballDone && !a.blast) {
       const sp = a.speed;
       if (a.inZone('sand') && sp > 30 && Math.random() < 0.6) fx.spark(a.s.x, a.s.y, NEON.sand, 1, 60, { life: 0.5, kind: 'smoke', drag: 4, size: 2 });
       if (a.inZone('boost')) fx.spark(a.s.x, a.s.y, NEON.boost, 2, 200, { angle: Math.atan2(a.s.vy, a.s.vx) + Math.PI, spread: 0.8, life: 0.35 });
@@ -1168,5 +1266,5 @@
 
 
 
-  window.Skill = { NEON, PUCK_COL, PUCK_NAME, FIELD_COL, FIELD_NAME, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, FX, SFX, animFx, roundRect, powerColor };
+  window.Skill = { NEON, PUCK_COL, PUCK_NAME, FIELD_COL, FIELD_NAME, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, BlastAnim, FX, SFX, animFx, roundRect, powerColor };
 })();

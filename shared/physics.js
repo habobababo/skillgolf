@@ -63,7 +63,8 @@
       light: { mass: 0.6, radius: 11, share: 0.4 },
       medium: { mass: 2.5, radius: 13, share: 0.35 },
       heavy: { mass: 14, radius: 16, share: 0.25 },
-      fieldCount: 1,       // so viele Pucks pro Bahn bekommen ein Feld (zufällig Gravitation oder Abstoßung)
+      fieldCount: 1,
+      bombs: { count: 2, fuse: 5, radius: 280, force: 2600 }, // Bomben-Pucks: scharf bei Berührung, Countdown (s) läuft erst nach dem Zug       // so viele Pucks pro Bahn bekommen ein Feld (zufällig Gravitation oder Abstoßung)
       attract: { radius: 230, strength: 900 },   // Gravitation: zieht den Ball an
       repel: { radius: 210, strength: 1100 },    // Abstoßung: drückt den Ball weg
     },
@@ -152,6 +153,8 @@
     for (const k of ['light', 'medium', 'heavy']) { c.pucks[k].mass = lim(c.pucks[k].mass, 0.05, 1000); c.pucks[k].radius = lim(c.pucks[k].radius, 4, 60); }
     c.pucks.ballMass = lim(c.pucks.ballMass, 0.05, 1000);
     c.pucks.fieldCount = Math.round(lim(c.pucks.fieldCount, 0, 30));
+    c.pucks.bombs.count = Math.round(lim(c.pucks.bombs.count, 0, 30)); c.pucks.bombs.fuse = lim(c.pucks.bombs.fuse, 0.5, 120);
+    c.pucks.bombs.radius = lim(c.pucks.bombs.radius, 10, 3000); c.pucks.bombs.force = lim(c.pucks.bombs.force, 0, 30000);
     for (const k of ['attract', 'repel']) { c.pucks[k].radius = lim(c.pucks[k].radius, 10, 3000); c.pucks[k].strength = lim(c.pucks[k].strength, 0, 20000); }
     c.glass.breakSpeed = lim(c.glass.breakSpeed, 0, 30000); c.glass.keep = lim(c.glass.keep, 0, 1); c.glass.bounce = lim(c.glass.bounce, 0, 2);
     c.bounce.band = lim(c.bounce.band, 0, 3); c.bounce.bandKick = lim(c.bounce.bandKick, 0, 3000);
@@ -314,9 +317,29 @@
     if (opts.kick) ultimateKick(s);
     return s;
   }
-  function clonePucks(p) { return p.map((q) => ({ x: q.x, y: q.y, vx: q.vx || 0, vy: q.vy || 0, r: q.r, m: q.m, c: q.c, f: q.f || null, alive: q.alive !== false })); }
+  function clonePucks(p) {
+    return p.map((q) => {
+      const o = { x: q.x, y: q.y, vx: q.vx || 0, vy: q.vy || 0, r: q.r, m: q.m, c: q.c, f: q.f || null, alive: q.alive !== false };
+      if (q.bomb) { o.bomb = true; o.armed = !!q.armed; }
+      if (q.pb != null) { o.pb = q.pb; o.ox = q.ox; o.oy = q.oy; }
+      return o;
+    });
+  }
   function exportGlass(s) { return Object.keys(s.glass).map(Number).sort((a, b) => a - b); }
-  function exportPucks(s) { return s.pucks.map((q) => (q.f ? { x: q.x, y: q.y, r: q.r, m: q.m, c: q.c, f: q.f, alive: q.alive } : { x: q.x, y: q.y, r: q.r, m: q.m, c: q.c, alive: q.alive })); }
+  function exportPucks(s) {
+    const out = [];
+    for (const q of s.pucks) {
+      if (q.pb != null) continue; // Spielerbälle aus einer Explosion gehören nicht dazu
+      const o = { x: q.x, y: q.y, r: q.r, m: q.m, c: q.c, alive: q.alive };
+      if (q.f) o.f = q.f;
+      if (q.bomb) { o.bomb = true; o.armed = !!q.armed; }
+      out.push(o);
+    }
+    return out;
+  }
+  /** Bombe scharf machen (Berührung) */
+  function arm(s, q) { if (q.bomb && !q.armed && q.alive) { q.armed = true; s.pevents.push({ type: 'arm', x: q.x, y: q.y }); } }
+  function touching(a, b, ra, rb) { const dx = b.x - a.x, dy = b.y - a.y, rr = ra + rb + 0.5; return dx * dx + dy * dy < rr * rr; }
 
   /** Ultimate: alle Pucks vom Ball wegschleudern (schwere weniger) */
   function ultimateKick(s) {
@@ -546,6 +569,7 @@
         for (let i = 0; i < s.pucks.length; i++) {
           const q = s.pucks[i];
           if (!q.alive) continue;
+          if (q.bomb && !q.armed && !s.done && touching(s, q, BR, q.r)) arm(s, q);
           const imp = collidePair(s, s.done ? 0 : PK.ballMass, q, q.m, PK.bounce, BR, q.r);
           if (imp > 40 && !s.done) { s.bounce = true; if (imp > s.hitV) { s.hitV = imp; s.hit = { kind: 'puck', c: q.c, m: q.m }; } }
         }
@@ -556,6 +580,7 @@
         for (let j = i + 1; j < s.pucks.length; j++) {
           const b = s.pucks[j];
           if (!b.alive || (a.vx === 0 && a.vy === 0 && b.vx === 0 && b.vy === 0)) continue;
+          if ((a.bomb && !a.armed) || (b.bomb && !b.armed)) { if (touching(a, b, a.r, b.r)) { arm(s, a); arm(s, b); } }
           const imp = collidePair(a, a.m, b, b.m, PK.bounce, a.r, b.r);
           if (imp > 120 && s.pevents.length < 200) s.pevents.push({ type: 'pp', x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, v: imp });
         }
@@ -654,6 +679,47 @@
     return { pucks: n, puckPts: pk, trick, nb };
   }
 
+  /**
+   * Explosion einer Bombe (zwischen den Zügen). balls: [{id, x, y}] liegende Spielerbälle – sie fliegen mit.
+   * Gibt einen Zustand zurück, der mit step() bis allDone weiterläuft (Server komplett, Client als Animation).
+   */
+  function blastState(cm, pucks, balls, glass, idx) {
+    const B = K.pucks.bombs;
+    const bodies = clonePucks(pucks);
+    for (const b of balls || []) bodies.push({ x: b.x, y: b.y, vx: 0, vy: 0, r: K.ballRadius, m: K.pucks.ballMass, c: 'ball', f: null, alive: true, pb: b.id, ox: b.x, oy: b.y });
+    const s = createState(-1e6, -1e6, 0, 0, [], { glass });
+    s.pucks = bodies; s.done = true; s.result = 'rest';
+    const q0 = bodies[idx];
+    if (!q0 || !q0.alive) { s.allDone = true; return s; }
+    q0.alive = false;
+    s.pevents.push({ type: 'boom', x: q0.x, y: q0.y });
+    for (const q of bodies) {
+      if (!q.alive) continue;
+      let dx = q.x - q0.x, dy = q.y - q0.y, d = Math.sqrt(dx * dx + dy * dy);
+      if (d >= B.radius) continue;
+      if (d < 1e-6) { dx = 1; dy = 0; d = 1; }
+      const f = B.force * (1 - d / B.radius) / Math.sqrt(q.m);
+      q.vx += dx / d * f; q.vy += dy / d * f;
+      arm(s, q); // Kettenreaktion: andere Bomben im Radius werden scharf
+    }
+    return s;
+  }
+  /** Explosion komplett rechnen -> neue Pucks, Ballpositionen, Glas */
+  function blast(cm, pucks, balls, glass, idx) {
+    const s = blastState(cm, pucks, balls, glass, idx);
+    while (!s.allDone && s.t < K.maxShotTime + 1) step(cm, s);
+    return { pucks: exportPucks(s), balls: blastBalls(s), glass: exportGlass(s), time: s.t };
+  }
+  /** Ballpositionen nach der Explosion (Wasser/Loch -> bleibt, wo er lag) */
+  function blastBalls(s) {
+    const out = [];
+    for (const q of s.pucks) {
+      if (q.pb == null) continue;
+      out.push(q.alive ? { id: q.pb, x: q.x, y: q.y } : { id: q.pb, x: q.ox, y: q.oy, back: true });
+    }
+    return out;
+  }
+
   // ---------------------------------------------------------------- Pucks verteilen
   function rng(seed) {
     let a = seed >>> 0;
@@ -692,6 +758,12 @@
     for (let k = 0; k < PK.fieldCount && cand.length; k++) {
       const j = Math.floor(R() * cand.length), i = cand.splice(j, 1)[0];
       out[i].f = R() < 0.5 ? 'attract' : 'repel';
+    }
+    // Bomben-Pucks (nur leichte/mittlere, nicht am Abschlag/Loch, nicht die Feld-Pucks)
+    const bc = cand.filter((i) => out[i].c !== 'heavy');
+    for (let k = 0; k < PK.bombs.count && bc.length; k++) {
+      const j = Math.floor(R() * bc.length), i = bc.splice(j, 1)[0];
+      out[i].bomb = true; out[i].armed = false;
     }
     return out;
   }
@@ -737,7 +809,7 @@
   const api = {
     DT, DEFAULTS, DEFAULT_CONFIG,
     configure, compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap, spawnPucks, exportPucks, exportGlass, modeCfg, shotMode,
-    holePoints, shotBonus, dsin, dcos,
+    holePoints, shotBonus, dsin, dcos, blastState, blast, blastBalls,
   };
   // Live-Werte (ändern sich mit configure)
   Object.defineProperties(api, {

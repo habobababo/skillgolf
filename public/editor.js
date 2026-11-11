@@ -398,7 +398,7 @@
   const fx = new S.FX(), sfx = new S.SFX();
   const ctrl = new S.ShotController(canvas, view, {
     fx, sfx, color: () => '#ffe03a', hoverPreview: true,
-    canShoot: () => !!testing && !testing.anim && !testing.done,
+    canShoot: () => !!testing && !testing.anim && !testing.blast && !testing.done,
     getPucks: () => (testing ? { list: testing.pucks, ver: testing.pver, glass: testing.glass } : null),
     shotMode: () => testMode(),
     onShoot: (angle, power) => {
@@ -425,7 +425,7 @@
     sel = null; renderSelProps();
     const m = P.sanitizeMap(map);
     const tcm = P.compile(m);
-    testing = { cm: tcm, ball: { ...m.start }, shots: 0, anim: null, done: false, pucks: P.spawnPucks(tcm, (Math.random() * 2 ** 31) | 0), pver: 0, ultUsed: false, glass: [] };
+    testing = { cm: tcm, ball: { ...m.start }, shots: 0, anim: null, done: false, pucks: P.spawnPucks(tcm, (Math.random() * 2 ** 31) | 0), pver: 0, ultUsed: false, glass: [], fuse: {}, blast: null };
     $('bTest').textContent = '■ Test beenden';
     $('testInfo').classList.remove('hidden');
     canvas.style.cursor = 'crosshair';
@@ -435,6 +435,9 @@
   }
   $('bTest').onclick = () => (testing ? stopTest() : startTest());
 
+  function armFuses(T) {
+    T.pucks.forEach((q, i) => { if (q.alive && q.bomb && q.armed && !(i in T.fuse)) T.fuse[i] = P.config.pucks.bombs.fuse * 1000; });
+  }
   function updateTest(dt) {
     const T = testing;
     if (T.anim) {
@@ -447,11 +450,32 @@
         T.lastTrail = T.anim.trail; T.trailFade = 0;
         T.anim = null;
         if (r === 'water') { T.ball = T.from; toast('💦 Wasser – zurück'); }
+        armFuses(T);
         if (r === 'sunk') { T.done = true; toast(`⛳ Eingelocht mit ${T.shots} Schlag/Schlägen (Par ${map.par})`); }
         else if (T.shots >= P.MAX_SHOTS) { T.done = true; toast('Keine Schläge mehr'); }
         const nm = testMode();
         if (nm === 'ult') { toast('⚡ next BALL is ULTIMATE BALL'); sfx.alarm(); fx.screen(0.5, '255,46,136'); }
         else if (nm === 'sling') { toast('🌀 next BALL is SLING BALL'); sfx.sling(); }
+      }
+    }
+    // Bomben: Countdown läuft, solange nichts rollt (im Test gibt es keine Züge)
+    if (!T.anim && !T.blast) {
+      for (const i of Object.keys(T.fuse)) {
+        T.fuse[i] -= dt * 1000;
+        if (T.fuse[i] <= 0 && !T.blast) {
+          delete T.fuse[i];
+          T.blast = new S.BlastAnim(T.cm, T.pucks, [{ id: 0, x: T.ball.x, y: T.ball.y }], T.glass, Number(i));
+        }
+      }
+    }
+    if (T.blast) {
+      T.blast.update(dt);
+      S.animFx(T.blast, fx, sfx, '#ff6a1a', map, dt);
+      const bp = T.blast.ballPos(0); if (bp) T.ball = { x: bp.x, y: bp.y };
+      if (T.blast.done && T.blast.fade > 0.3) {
+        const bb = P.blastBalls(T.blast.s)[0]; if (bb) T.ball = { x: bb.x, y: bb.y };
+        T.pucks = P.exportPucks(T.blast.s); T.glass = P.exportGlass(T.blast.s); T.pver++; T.blast = null;
+        armFuses(T);
       }
     }
     $('testInfo').textContent = T.done ? `Fertig – ${T.shots} Schläge · Leertaste/Klick = neu starten · Esc = beenden` : `Test · Schlag ${T.shots + 1}/${P.MAX_SHOTS} · Klicken & ziehen = Kraft · Esc beendet`;
@@ -507,12 +531,13 @@
     view.begin(fx);
     const ctx = view.ctx;
     let broken = null;
-    if (testing) { broken = {}; if (testing.anim) broken = testing.anim.s.glass; else for (const i of testing.glass) broken[i] = true; }
+    if (testing) { broken = {}; if (testing.blast) broken = testing.blast.s.glass; else if (testing.anim) broken = testing.anim.s.glass; else for (const i of testing.glass) broken[i] = true; }
     S.drawMap(ctx, map, t, { view, cache: false, fx, glass: broken });
     if (testing) {
       updateTest(dt);
       if (testing) {
-        S.drawPucks(ctx, testing.anim ? testing.anim.pucks : testing.pucks, t);
+        const fsec = {}; for (const i in testing.fuse) fsec[i] = Math.max(0, testing.fuse[i] / 1000);
+        S.drawPucks(ctx, testing.blast ? testing.blast.pucks : testing.anim ? testing.anim.pucks : testing.pucks, t, fsec);
         if (testing.anim) S.drawTrail(ctx, testing.anim.trail, '#ffe03a');
         else if (testing.lastTrail) { testing.trailFade += dt; S.drawTrail(ctx, testing.lastTrail, '#ffe03a', Math.max(0, 1 - testing.trailFade / 4)); }
         if (!(testing.done && !testing.anim && Math.hypot(testing.ball.x - testing.cm.hole.x, testing.ball.y - testing.cm.hole.y) < 1)) S.drawBall(ctx, testing.ball.x, testing.ball.y, '#ffe03a');

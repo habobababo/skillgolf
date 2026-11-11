@@ -10,6 +10,9 @@
   let ultBy = null;                  // Spieler-ID, die gerade einen Ultimate-Schlag spielt
   function setPucks(list) { pucks = list || []; pucksVer++; }
   let glass = [];                    // zerbrochene Glaswände (Objekt-Indizes), Server-Stand
+  let fuseInfo = { ticking: false, list: [], at: 0 }; // Bomben-Countdowns vom Server
+  let blastAnim = null;              // laufende Explosion
+  let lastTickSec = {};
   function setGlass(list) { if (list) { glass = list; pucksVer++; } }
   const anims = new Map(); // playerId -> BallAnim
   const fx = new window.Skill.FX();
@@ -55,7 +58,7 @@
       case 'room': onRoom(m.room); break;
       case 'hole':
         if (m.config) P.configure(m.config);
-        map = m.map; cm = P.compile(map); anims.clear(); awaiting = false; ultBy = null; glass = []; setGlass(m.glass); setPucks(m.pucks);
+        map = m.map; cm = P.compile(map); anims.clear(); awaiting = false; ultBy = null; glass = []; blastAnim = null; lastTickSec = {}; fuseInfo = { ticking: false, list: [], at: 0 }; setGlass(m.glass); setPucks(m.pucks);
         $('overlay').classList.add('hidden');
         show('game');
         toast(`Bahn ${m.index + 1}/${m.total}: ${map.name}`, true);
@@ -63,6 +66,7 @@
       case 'shot': onShot(m); break;
       case 'shotEnd': onShotEnd(m); break;
       case 'turn': onTurn(m.turn); break;
+      case 'blast': onBlast(m); break;
       case 'magnet': onMagnet(m.id, m.puck); break;
       case 'timeout': onTimeout(m); break;
       case 'ultInput': { const a = anims.get(m.id); if (a && a.ult && !a.local) a.addInputs(m.inputs); break; }
@@ -88,6 +92,7 @@
   function myTurn() { return !!turn && turn.id === myId && turn.phase === 'aim'; }
   function onRoom(r) {
     setTurnState(r.turn);
+    if (r.fuses) fuseInfo = { ticking: r.fuses.ticking, list: r.fuses.list, at: performance.now() };
     const prevPhase = room && room.phase;
     // laufende Animationen behalten Vorrang vor Server-Positionen
     room = r;
@@ -200,6 +205,34 @@
       banner(`${p.name.toUpperCase()} IST DRAN`, me_ && !me_.done && P.config.magnet.usesPerHole > 0 && (me_.magnetLeft || 0) > 0 ? 'GEGNER · 🧲 Ball oder Puck magnetisieren' : 'GEGNER', 'opp');
     }
     renderHud(); renderBoard();
+  }
+
+  /** Bombe explodiert (zwischen den Zügen) */
+  function onBlast(m) {
+    if (!cm) return;
+    fuseInfo = { ticking: false, list: fuseInfo.list.filter(([i]) => i !== m.idx), at: performance.now() };
+    blastAnim = new S.BlastAnim(cm, m.pucks0, m.balls0, m.glass0, m.idx);
+    blastAnim.final = m;
+    if (turn) { turn.phase = 'blast'; turnDeadline = 0; }
+    renderHud();
+  }
+  function finishBlast() {
+    const m = blastAnim.final;
+    blastAnim = null;
+    setGlass(m.glass); setPucks(m.pucks);
+    for (const b of m.balls) {
+      const q = room && room.players.find((x) => x.id === b.id);
+      if (!q) continue;
+      q.ball = { x: b.x, y: b.y };
+      if (b.back && b.id === myId) toast('💥 Dein Ball flog ins Aus – er bleibt, wo er lag');
+    }
+    renderBoard(); renderHud();
+  }
+  /** Restsekunden der scharfen Bomben { index: s } */
+  function fuseSeconds() {
+    const out = {}, el = fuseInfo.ticking ? performance.now() - fuseInfo.at : 0;
+    for (const [i, ms] of fuseInfo.list) out[i] = Math.max(0, ms - el) / 1000;
+    return out;
   }
 
   /** Zeit abgelaufen: Strafschlag */
@@ -406,6 +439,7 @@
     const tp = turn && room.players.find((x) => x.id === turn.id);
     const flying = turn && turn.phase === 'flight';
     $('hudTurn').innerHTML = room.phase !== 'playing' || !tp ? ''
+      : turn.phase === 'blast' ? '<b style="color:#ff6a1a">💥 EXPLOSION …</b>'
       : tp.id === myId ? (flying ? 'Dein Ball rollt …' : '<b class="you">DU BIST DRAN</b>')
       : `Am Zug: <b style="color:${tp.color}">${esc(tp.name)}</b>${flying ? ' · rollt …' : ''}`;
     updateMagnetBtn();
@@ -448,7 +482,7 @@
     const b = $('board');
     const ps = room.players.slice().sort(rankSort);
     let h = '<h4>Rangliste <small class="muted">Punkte</small></h4>';
-    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<br>${['attract', 'repel'].map((f) => `<span><i style="color:${S.FIELD_COL[f]};border-color:${S.FIELD_COL[f]};box-shadow:0 0 8px ${S.FIELD_COL[f]}"></i>${S.FIELD_NAME[f]}</span>`).join('<br>')}<br><span><i style="color:${S.NEON.band};border-color:${S.NEON.band};border-radius:2px"></i>Gummiband (verstärkt Abprall)</span><p class="muted">Schlag ${P.config.sling.shots.join(' & ')}: <b style="color:#00eaff">SLING BALL</b> – Ball mit der Maus lenken.<br>Schlag ${P.config.ultimate.afterShots + 1}: <b style="color:#ff2e88">ULTIMATE BALL</b> – Pucks wegsprengen, Zeitlupe, lenken.</p>${pointsHelp()}</div>`;
+    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<br>${['attract', 'repel'].map((f) => `<span><i style="color:${S.FIELD_COL[f]};border-color:${S.FIELD_COL[f]};box-shadow:0 0 8px ${S.FIELD_COL[f]}"></i>${S.FIELD_NAME[f]}</span>`).join('<br>')}<br><span><i style="color:#ff3a2a;border-color:#ff3a2a;background:#111"></i>Bombe: scharf bei Berührung, Countdown läuft nach dem Zug</span><br><span><i style="color:${S.NEON.band};border-color:${S.NEON.band};border-radius:2px"></i>Gummiband (verstärkt Abprall)</span><p class="muted">Schlag ${P.config.sling.shots.join(' & ')}: <b style="color:#00eaff">SLING BALL</b> – Ball mit der Maus lenken.<br>Schlag ${P.config.ultimate.afterShots + 1}: <b style="color:#ff2e88">ULTIMATE BALL</b> – Pucks wegsprengen, Zeitlupe, lenken.</p>${pointsHelp()}</div>`;
     for (const p of ps) {
       const a = anims.get(p.id);
       const rolling = a && !a.done;
@@ -515,7 +549,7 @@
     canShoot: () => {
       const p = me();
       if (!room || room.phase !== 'playing' || !p || p.done || awaiting || !cm || ultBy) return false;
-      if (!myTurn()) return false;
+      if (!myTurn() || blastAnim) return false;
       for (const [, a] of anims) if (!a.done) return false;
       return true;
     },
@@ -581,6 +615,7 @@
   });
 
   function ballPos(p) {
+    if (blastAnim) { const bp = blastAnim.ballPos(p.id); if (bp) return bp; }
     const a = anims.get(p.id);
     if (a) return a.done && a.result === 'water' ? p.ball : a.pos;
     return p.ball;
@@ -648,14 +683,26 @@
       let live = null;
       for (const [, a] of anims) if (!a.done && (!live || a.born > live.born)) live = a;
       let broken = {};
-      if (live) broken = live.s.glass; else for (const i of glass) broken[i] = true;
+      if (blastAnim) broken = blastAnim.s.glass; else if (live) broken = live.s.glass; else for (const i of glass) broken[i] = true;
       S.drawMap(ctx, map, t, { view, cache: true, fx, glass: broken });
       const mine = me();
       // Leuchtschweife (Curve-Linien) aller Schläge
       for (const [, a] of anims) if (a.player) S.drawTrail(ctx, a.trail, a.player.color, a.done ? Math.max(0, 1 - a.fade / SPAWN_FADE) : 1);
-      S.drawPucks(ctx, live ? live.pucks : pucks, t);
+      // Explosion animieren
+      if (blastAnim) {
+        blastAnim.update(dt);
+        S.animFx(blastAnim, fx, sfx, '#ff6a1a', map, dt);
+        if (blastAnim.done && blastAnim.fade > 0.3) finishBlast();
+      }
+      // Countdown-Ticken der Bomben (nur wenn er läuft)
+      const fs = fuseSeconds();
+      if (fuseInfo.ticking && !blastAnim) for (const i in fs) {
+        const sec = Math.ceil(fs[i]);
+        if (lastTickSec[i] !== sec && sec > 0) { lastTickSec[i] = sec; sfx.fuseTick(sec <= 2); }
+      }
+      S.drawPucks(ctx, blastAnim ? blastAnim.pucks : live ? live.pucks : pucks, t, fs);
       // Magnetfelder
-      const livePucks = live ? live.pucks : pucks;
+      const livePucks = blastAnim ? blastAnim.pucks : live ? live.pucks : pucks;
       const fields = [];
       for (const p of room.players) { const at = p.magnet ? magnetPos(p, livePucks) : null; if (at) fields.push(at); }
       // während eines Schlags: magnetisierte Pucks des laufenden Schlags (wandern mit)
