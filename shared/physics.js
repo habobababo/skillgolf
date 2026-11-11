@@ -65,7 +65,7 @@
       minWidth: 1.2,       // Mindestdicke am Ende
       fade: 0.8,           // 0 = gar nicht verblassen, 1 = am Ende unsichtbar
       fadeLength: 1500,    // nach so vielen px Weg ist die Linie maximal dünn/verblasst
-      untilFirstHit: true, // nur bis zur ersten Kollision zeigen (false = ganze Bahn)
+      untilFirstHit: false, // true = nur bis zur ersten Kollision zeigen
       pucks: false,        // vorhergesagte Wege von Pucks/Gegnerbällen zeigen
     },
     pucks: {               // bewegliche Pucks (mindestens 10 pro Bahn)
@@ -211,7 +211,7 @@
     c.preview.minWidth = lim(c.preview.minWidth, 0.3, c.preview.width);
     c.preview.fade = lim(c.preview.fade, 0, 1);
     c.preview.fadeLength = lim(c.preview.fadeLength, 50, 100000);
-    c.preview.untilFirstHit = c.preview.untilFirstHit !== false; c.preview.pucks = c.preview.pucks === true;
+    c.preview.untilFirstHit = c.preview.untilFirstHit === true; c.preview.pucks = c.preview.pucks === true;
     c.blackHole.radius = lim(c.blackHole.radius, 0, 3000);
     c.blackHole.strength = lim(c.blackHole.strength, 0, 20000);
     c.blackHole.puckFactor = lim(c.blackHole.puckFactor, 0, 10);
