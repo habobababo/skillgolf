@@ -22,9 +22,11 @@ ROOT="$(pwd -P)"
 git() { command git -c safe.directory="$ROOT" "$@"; }
 
 # Darf der Server-Benutzer hier überhaupt schreiben?
-if [ ! -w "$ROOT" ] || [ ! -w "$ROOT/.git" ] || [ -n "$(find "$ROOT/.git" "$ROOT/public" "$ROOT/shared" ! -writable -print -quit 2>/dev/null)" ]; then
-  OWNER="$(stat -c %U "$ROOT" 2>/dev/null || echo ?)"
-  fail "Keine Schreibrechte im Ordner $ROOT (gehört: $OWNER, Updater läuft als: $(id -un)). Einmalig auf dem Server ausführen: sudo chown -R $(id -un): $ROOT"
+# Nur Ordner prüfen: Git ersetzt Dateien über ihren Ordner, und seine Pack-Dateien sind absichtlich schreibgeschützt.
+BAD="$ROOT"; [ -w "$ROOT" ] && BAD="$(find "$ROOT" -path "$ROOT/node_modules" -prune -o -type d ! -writable -print -quit 2>/dev/null)"
+if [ -n "$BAD" ]; then
+  OWNER="$(stat -c %U "$BAD" 2>/dev/null || echo ?)"
+  fail "Keine Schreibrechte in $BAD (gehört: $OWNER, Updater läuft als: $(id -un)). Einmalig auf dem Server ausführen: sudo chown -R $(id -un): $ROOT"
 fi
 
 [ -d .git ] || fail "Kein Git-Repo. Skillgolf muss per 'git clone' installiert sein, damit der Updater funktioniert."
