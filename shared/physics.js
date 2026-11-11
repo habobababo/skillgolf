@@ -728,7 +728,11 @@
         const q = s.pucks[i];
         if (!q.alive) continue;
         const dx = cm.hole.x - q.x, dy = cm.hole.y - q.y;
-        if (dx * dx + dy * dy < HOLE_R * HOLE_R) { q.alive = false; q.vx = q.vy = 0; s.pevents.push({ type: 'swallow', x: q.x, y: q.y, c: q.c }); }
+        if (dx * dx + dy * dy < HOLE_R * HOLE_R) {
+          q.alive = false; q.vx = q.vy = 0;
+          if (q.pb != null) { q.holed = true; q.ox = cm.hole.x; q.oy = cm.hole.y; } // Spielerball reingeschleudert -> zählt als eingelocht
+          s.pevents.push({ type: 'swallow', x: q.x, y: q.y, c: q.c, pb: q.pb });
+        }
       }
       if (!s.done) {
         const dx = cm.hole.x - s.x, dy = cm.hole.y - s.y, cr = Math.max(1, HOLE_R - 3);
@@ -906,7 +910,7 @@
     const out = [];
     for (const q of s.pucks) {
       if (q.pb == null) continue;
-      out.push(q.alive ? { id: q.pb, x: q.x, y: q.y } : { id: q.pb, x: q.ox, y: q.oy, back: true, eaten: !!q.eaten, drowned: !!q.drowned });
+      out.push(q.alive ? { id: q.pb, x: q.x, y: q.y } : { id: q.pb, x: q.ox, y: q.oy, back: !q.holed, eaten: !!q.eaten, drowned: !!q.drowned, holed: !!q.holed });
     }
     return out;
   }

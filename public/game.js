@@ -135,6 +135,11 @@
       const q = room && room.players.find((x) => x.id === b.id);
       if (!q || !q.ball || q.sunk) continue;
       q.ball = { x: b.x, y: b.y };
+      if (b.holed) {
+        q.sunk = true; q.done = true;
+        if (map) { fx.ring(map.hole.x, map.hole.y, q.color, 80, 0.7, 5); fx.text(map.hole.x, map.hole.y - 40, '⛳ REINGESCHLEUDERT!', q.color, 26); }
+        toast(b.id === myId ? '⛳ Du wurdest ins Loch geschleudert – zählt als eingelocht!' : `⛳ ${q.name} wurde ins Loch geschleudert – zählt!`, true);
+      }
       if (b.drowned) toast(b.id === myId ? '💦 Du wurdest ins Wasser geschleudert – zurück zum Abschlag!' : `💦 ${q.name} wurde ins Wasser geschleudert – zurück zum Abschlag`, b.id === myId);
       if (b.eaten) toast(b.id === myId ? '😱 Dein Ball wurde GEFRESSEN – zurück zum Abschlag!' : `😋 ${q.name}s Ball wurde gefressen`, b.id === myId);
     }
@@ -297,12 +302,7 @@
     const m = blastAnim.final;
     blastAnim = null;
     setGlass(m.glass); setPucks(m.pucks);
-    for (const b of m.balls) {
-      const q = room && room.players.find((x) => x.id === b.id);
-      if (!q) continue;
-      q.ball = { x: b.x, y: b.y };
-      if (b.back && b.id === myId) toast('💥 Dein Ball flog ins Aus – er bleibt, wo er lag');
-    }
+    setBalls(m.balls); // inkl. ins Wasser (-> Abschlag) oder ins Loch (-> eingelocht) geschleudert
     renderBoard(); renderHud();
   }
   /** großer Countdown über dem Spielfeld: wächst, je weniger Zeit bleibt */

@@ -222,7 +222,7 @@ function fuseExpired(room) {
   const pucks0 = room.pucks, glass0 = room.glass || [];
   const r = P.blast(room.cm, pucks0, balls, glass0, i);
   room.pucks = r.pucks; room.glass = r.glass;
-  for (const b of r.balls) { const q = room.players.find((x) => x.id === b.id); if (q) q.ball = { x: b.x, y: b.y }; }
+  applyBalls(room, r.balls);
   noteArmed(room);
   // Zug pausieren, bis die Explosion ausgerollt ist; dann bekommt der Spieler am Zug neu Zeit
   clearTimeout(t.timer);
@@ -253,7 +253,7 @@ function handleGPuck(room, p, msg) {
   const noArm = !P.canArm(p.shots + 1); // Abschuss vor dem 1. Schlag: Bomben bleiben ruhig
   const r = P.launch(room.cm, pucks0, balls, glass0, p.id, angle, power, noArm);
   room.pucks = r.pucks; room.glass = r.glass;
-  for (const b of r.balls) { const q = room.players.find((x) => x.id === b.id); if (q) q.ball = { x: b.x, y: b.y }; }
+  applyBalls(room, r.balls);
   noteArmed(room);
   t.phase = 'blast'; t.deadline = 0;
   const ms = r.time * 1000 + 400;
@@ -439,7 +439,13 @@ function ballsOf(room, p) {
 }
 /** angestoßene Gegnerbälle übernehmen */
 function applyBalls(room, balls) {
-  for (const b of balls || []) { const q = room.players.find((x) => x.id === b.id); if (q && q.ball && !q.sunk) q.ball = { x: b.x, y: b.y }; }
+  for (const b of balls || []) {
+    const q = room.players.find((x) => x.id === b.id);
+    if (!q || !q.ball || q.sunk) continue;
+    q.ball = { x: b.x, y: b.y };
+    // von einem fremden Schlag/Explosion ins Loch geschleudert: zählt als eingelocht (mind. 1 Schlag)
+    if (b.holed && !q.done) { q.shots = Math.max(1, q.shots); finishPlayer(room, q, true); }
+  }
 }
 
 /** Ergebnis eines Schlags übernehmen (normal + Ultimate); gibt die Bonuspunkte des Schlags zurück */
