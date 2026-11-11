@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skillgolf · Admin</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  body { overflow: auto; }
+  .wrap { max-width: 760px; margin: 40px auto; padding: 0 16px; }
+  .card { margin-bottom: 18px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .kv { display: grid; grid-template-columns: 170px 1fr; gap: 6px 14px; font-size: 14px; }
+  .kv b { color: #00eaff; font-weight: 600; }
+  pre { background: #05061a; border: 1px solid rgba(0,234,255,.25); border-radius: 8px; padding: 12px; font-size: 12px; white-space: pre-wrap; max-height: 340px; overflow: auto; color: #cfe; }
+  .ok { color: #39ff8a; } .warn { color: #ffe03a; } .bad { color: #ff3860; }
+  .hidden { display: none !important; }
+  h1.logo { font-size: 42px; margin: 0 0 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 class="logo">SKILL<span>GOLF</span> · Admin</h1>
+
+  <div class="card" id="login">
+    <h3>Anmelden</h3>
+    <div class="row"><input id="pw" type="password" placeholder="Admin-Passwort (update.json)" autocomplete="current-password"><button id="btnLogin">Anmelden</button></div>
+    <p class="muted" id="loginMsg"></p>
+  </div>
+
+  <div id="panel" class="hidden">
+    <div class="card">
+      <h3>Version</h3>
+      <div class="kv" id="info"></div>
+    </div>
+    <div class="card">
+      <h3>Update</h3>
+      <div class="row">
+        <button id="btnCheck">Nach Updates suchen</button>
+        <button id="btnUpdate" class="hidden">Update installieren &amp; neu starten</button>
+        <button id="btnRestart" class="ghost">Nur neu starten</button>
+      </div>
+      <p id="msg"></p>
+      <pre id="log" class="hidden"></pre>
+    </div>
+  </div>
+</div>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  let pw = sessionStorage.getItem('skillgolf.adminpw') || '';
+  const api = async (action, method = 'GET', q = '') => {
+    const r = await fetch('/api/admin/' + action + q, { method, headers: { 'x-admin-password': pw }, cache: 'no-store' });
+    const body = await r.json().catch(() => ({}));
+    return { status: r.status, body };
+  };
+  const fmt = (iso) => iso ? new Date(iso).toLocaleString('de-DE') : '–';
+  const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  function msg(text, cls) { $('msg').className = cls || ''; $('msg').textContent = text; }
+  function showLog(t) { $('log').classList.toggle('hidden', !t); $('log').textContent = t || ''; }
+
+  async function load() {
+    const r = await api('status');
+    if (r.status !== 200) {
+      $('panel').classList.add('hidden'); $('login').classList.remove('hidden');
+      $('loginMsg').textContent = r.body.error || 'Fehler';
+      $('loginMsg').className = 'bad';
+      return;
+    }
+    sessionStorage.setItem('skillgolf.adminpw', pw);
+    $('login').classList.add('hidden'); $('panel').classList.remove('hidden');
+    const s = r.body, v = s.version, run = s.runningSince;
+    const diff = run.hash && v.hash && run.hash !== v.hash;
+    $('info').innerHTML = `
+      <span>Installiert</span><span><b>${esc(v.hash || '–')}</b> · ${fmt(v.date)} · ${esc(v.subject)}</span>
+      <span>Läuft gerade</span><span>${esc(run.hash || '–')}${diff ? ' <span class="warn">(Neustart nötig)</span>' : ''}</span>
+      <span>GitHub-Token</span><span>${s.tokenSet ? '<span class="ok">eingetragen</span>' : '<span class="warn">fehlt – für ein privates Repo nötig</span>'}</span>
+      <span>Auto-Update</span><span>${s.autoUpdate ? `<span class="ok">an</span> (alle ${s.checkMinutes} Min., nur wenn niemand spielt)` : 'aus'}</span>
+      <span>Neustart</span><span>${s.managed ? 'über systemd/pm2' : 'startet sich selbst neu'}</span>
+      <span>Spieler online</span><span>${s.players}</span>
+      <span>Zuletzt geprüft</span><span>${s.lastCheck ? fmt(s.lastCheck.at) + ' – ' + ({ current: 'aktuell', available: s.lastCheck.behind + ' neue Änderung(en)', error: 'Fehler' }[s.lastCheck.state] || s.lastCheck.state) : '–'}</span>`;
+    $('btnRestart').classList.toggle('hidden', false);
+  }
+
+  async function waitForRestart(oldHash) {
+    msg('Server startet neu …', 'warn');
+    const t0 = Date.now();
+    const tick = async () => {
+      try {
+        const r = await fetch('/api/version', { cache: 'no-store' });
+        if (r.ok) { const v = await r.json(); if (Date.now() - t0 > 2500) { msg(`Läuft wieder (Version ${v.hash}).`, 'ok'); load(); return; } }
+      } catch { /* noch weg */ }
+      if (Date.now() - t0 > 90000) { msg('Server meldet sich nicht zurück – bitte auf dem Server nachsehen (server.log / journalctl).', 'bad'); return; }
+      setTimeout(tick, 1500);
+    };
+    setTimeout(tick, 2000);
+  }
+
+  $('btnLogin').onclick = () => { pw = $('pw').value; load(); };
+  $('pw').onkeydown = (e) => { if (e.key === 'Enter') $('btnLogin').click(); };
+
+  $('btnCheck').onclick = async () => {
+    msg('Suche …'); showLog('');
+    const r = await api('check', 'POST');
+    const b = r.body;
+    if (b.state === 'available') { msg(`${b.behind} neue Änderung(en) verfügbar.`, 'warn'); $('btnUpdate').classList.remove('hidden'); }
+    else if (b.state === 'current') { msg('Alles aktuell.', 'ok'); $('btnUpdate').classList.add('hidden'); }
+    else msg(b.error || 'Fehler beim Prüfen.', 'bad');
+    showLog(b.log); load();
+  };
+
+  $('btnUpdate').onclick = async () => {
+    msg('Installiere …'); showLog('');
+    let r = await api('update', 'POST');
+    if (r.status === 409) {
+      if (!confirm(r.body.error + '\n\nTrotzdem jetzt aktualisieren?')) { msg('Abgebrochen.'); return; }
+      r = await api('update', 'POST', '?force=1');
+    }
+    const b = r.body;
+    showLog(b.log);
+    if (b.state === 'updated') waitForRestart();
+    else if (b.state === 'current') msg('War schon aktuell.', 'ok');
+    else msg(b.error || 'Update fehlgeschlagen – siehe Ausgabe.', 'bad');
+  };
+
+  $('btnRestart').onclick = async () => {
+    if (!confirm('Server jetzt neu starten? Laufende Spiele gehen verloren.')) return;
+    await api('restart', 'POST'); waitForRestart();
+  };
+
+  if (pw) load();
+})();
+</script>
+</body>
+</html>

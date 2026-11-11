@@ -1,0 +1,25 @@
+# systemd-Dienst für Skillgolf (Vorlage)
+#
+#   1. Pfad, Benutzer und Port unten anpassen
+#   2. sudo cp tools/skillgolf.service /etc/systemd/system/skillgolf.service
+#   3. sudo systemctl daemon-reload && sudo systemctl enable --now skillgolf
+#
+# Logs: journalctl -u skillgolf -f
+# Nach einem Update über /admin beendet sich der Server, systemd startet ihn sofort neu.
+
+[Unit]
+Description=Skillgolf (Multiplayer-Minigolf)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=skillgolf
+WorkingDirectory=/opt/skillgolf
+Environment=PORT=3100
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+{
+  "githubToken": "github_pat_HIER_DEIN_TOKEN",
+  "adminPassword": "hier-ein-langes-passwort",
+  "autoUpdate": false,
+  "checkMinutes": 30,
+  "restart": "auto"
+}

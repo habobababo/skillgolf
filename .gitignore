@@ -2,3 +2,5 @@ node_modules/
 maps/custom/*.json
 .env
 config.json
+update.json
+server.log

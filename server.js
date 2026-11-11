@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const P = require('./shared/physics');
+const createUpdater = require('./updater');
 
 const PORT = Number(process.env.PORT) || 3100;
 const ROOT = __dirname;
@@ -80,6 +81,8 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   const p = decodeURIComponent(url.pathname);
 
+  if (updater && updater.handle(req, res, p)) return; // /api/version, /api/admin/*
+  if (p === '/admin') return serveFile(res, PUBLIC, 'admin.html');
   if (p === '/api/config') return sendJson(res, 200, P.config);
   if (p === '/api/maps' && req.method === 'GET') return sendJson(res, 200, listMaps());
   if (p.startsWith('/api/maps/') && req.method === 'GET') {
@@ -643,4 +646,17 @@ wss.on('connection', (ws) => {
   ws.on('close', () => leave(p));
 });
 
-server.listen(PORT, () => console.log(`Skillgolf läuft auf http://localhost:${PORT}  (Editor: /editor)`));
+// ---------------------------------------------------------------- Updater (/admin)
+const updater = createUpdater({
+  root: ROOT,
+  activePlayers: () => { let n = 0; for (const r of rooms.values()) n += r.players.length; return n; },
+  notifyAll: (text) => { for (const r of rooms.values()) broadcast(r, { type: 'toast', text }); },
+});
+
+// Beim Selbst-Neustart kann der alte Prozess den Port noch kurz halten -> ein paar Mal neu versuchen
+let listenTries = 0;
+server.on('error', (e) => {
+  if (e.code === 'EADDRINUSE' && listenTries++ < 20) { setTimeout(() => server.listen(PORT), 500); return; }
+  throw e;
+});
+server.listen(PORT, () => console.log(`Skillgolf läuft auf http://localhost:${PORT}  (Editor: /editor, Admin: /admin)`));

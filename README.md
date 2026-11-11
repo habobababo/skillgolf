@@ -28,6 +28,28 @@ npm install
 npm start            # http://localhost:3100 (PORT per Umgebungsvariable änderbar)
 ```
 
+## Updates (auch bei privatem Repo)
+
+Skillgolf bringt einen Updater mit: `tools/update.sh` holt den neuesten Stand von GitHub und installiert neue Abhängigkeiten nur, wenn sich `package-lock.json` geändert hat. Die Admin-Seite **`/admin`** zeigt die Version und hat Knöpfe für „Nach Updates suchen“, „Update installieren & neu starten“ und „Nur neu starten“.
+
+**Einrichtung (einmalig):**
+
+1. **GitHub-Token erstellen**: GitHub → Settings → Developer settings → *Fine-grained tokens* → *Generate new token*. Unter *Repository access* nur `habobababo/skillgolf` auswählen und bei *Permissions → Contents* **Read-only** einstellen. Mehr Rechte braucht der Token nicht.
+2. **`update.json` anlegen** (Vorlage: `update.example.json`, die Datei liegt nicht im Repo):
+   ```json
+   { "githubToken": "github_pat_…", "adminPassword": "langes-passwort", "autoUpdate": false }
+   ```
+   `chmod 600 update.json`, damit nur der Server-Benutzer sie lesen kann.
+3. **Server neu starten**. Danach unter `http://dein-server:3100/admin` mit dem Passwort anmelden.
+
+**Updaten:** auf `/admin` „Nach Updates suchen“ und dann „Update installieren“ klicken. Oder auf dem Server `tools/update.sh` ausführen und den Server neu starten. Sind gerade Spieler online, fragt die Seite vorher nach, weil laufende Spiele beim Neustart verloren gehen. Die Spieler sehen „Server wird aktualisiert“, ihre Browser laden danach automatisch neu.
+
+**Neustart:** Läuft der Server unter **systemd** oder **pm2**, beendet er sich nach dem Update, und der Dienst startet ihn neu. Eine fertige Vorlage liegt in `tools/skillgolf.service`. Läuft er einfach per `npm start`, startet er sich selbst als neuen Prozess, die Ausgabe landet dann in `server.log`. Mit `"restart": "sudo systemctl restart skillgolf"` in `update.json` kannst du auch einen eigenen Befehl angeben.
+
+**Auto-Update:** Mit `"autoUpdate": true` prüft der Server alle `checkMinutes` Minuten (Standard 30) und installiert Updates von selbst, aber nur, wenn gerade niemand spielt.
+
+Der Token wird nur für den einzelnen `git fetch` mitgegeben und nirgends gespeichert, weder in `.git/config` noch in der Repo-Adresse. `config.json`, `update.json` und eigene Bahnen in `maps/custom/` bleiben bei Updates unverändert.
+
 ## Spielwerte einstellen
 
 Kopiere `config.example.json` nach `config.json` und ändere die Werte. Der Server merkt Änderungen innerhalb von etwa einer Sekunde, ein Neustart ist nicht nötig. Alle Spieler bekommen die neuen Werte automatisch. Was fehlt, bleibt auf dem Standardwert. `config.json` liegt nicht im Repo, deshalb überschreibt ein `git pull` deine Einstellungen nicht.
@@ -114,4 +136,7 @@ shared/physics.js    deterministische Physik (Browser + Node)
 public/              Spiel (index.html, game.js), Editor (editor.html, editor.js), common.js
 maps/builtin/        eingebaute Bahnen (erzeugt mit tools/genmaps.js)
 maps/custom/         im Editor gespeicherte Bahnen
+updater.js           Updater + Admin-API (/admin, /api/admin/*)
+tools/update.sh      Update holen (Token aus update.json), Abhängigkeiten installieren
+tools/skillgolf.service  Vorlage für einen systemd-Dienst
 ```

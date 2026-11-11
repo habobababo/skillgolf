@@ -27,7 +27,9 @@
       ws.onerror = () => reject(new Error('Keine Verbindung zum Server'));
       ws.onclose = () => {
         toast('Verbindung getrennt – verbinde neu …'); room = null; show('menu');
-        setTimeout(() => location.reload(), 2000);
+        // warten, bis der Server wieder da ist (z. B. nach einem Update), dann neu laden
+        const retry = () => fetch('/api/version', { cache: 'no-store' }).then((r) => { if (r.ok) location.reload(); else throw 0; }).catch(() => setTimeout(retry, 2000));
+        setTimeout(retry, 1500);
       };
       ws.onmessage = (e) => onMessage(JSON.parse(e.data));
     });
