@@ -46,6 +46,11 @@
       perHole: 1,
       speed: 1,            // Abschuss-Tempo relativ zum Ball
     },
+    gadgets: {             // Gadgets zum Einsammeln: erscheinen zu jedem Zug neu und verschwinden wieder
+      radius: 16,
+      sling: { min: 1, max: 2 },   // nächster Schlag ist ein Sling-Ball
+      ghost: { min: 1, max: 2 },   // nächster Schlag als Geist: durch Pucks/Bälle, immun gegen alle Effekte
+    },
     glass: {               // Glaswände: zerbrechen bei genug Tempo, sonst prallt man ab
       breakSpeed: 1100,    // ab diesem Aufprall-Tempo (px/s) zerbricht das Glas
       keep: 0.55,          // Anteil des Tempos, der nach dem Durchbrechen bleibt
@@ -95,8 +100,7 @@
       grow: 2.5,           // Radius-Zuwachs pro Bissen (px)
       maxScale: 3,         // höchstens so viel größer als normal
     },
-    sling: {               // „SLING BALL“: Ball mit der Maus lenken, ohne Wegkick
-      shots: [2, 4],       // bei diesen Schlagnummern
+    sling: {               // „SLING BALL“: Ball mit der Maus lenken – gibt es nur noch per Gadget
       launchFactor: 1,
       slowmo: 0.6,
       steerTime: 2.5,
@@ -180,6 +184,8 @@
       } }
     for (const k of ['attract', 'repel']) { c.pucks[k].radius = lim(c.pucks[k].radius, 10, 3000); c.pucks[k].strength = lim(c.pucks[k].strength, 0, 20000); }
     c.gravityPuck.perHole = Math.round(lim(c.gravityPuck.perHole, 0, 10)); c.gravityPuck.speed = lim(c.gravityPuck.speed, 0.05, 3);
+    c.gadgets.radius = lim(c.gadgets.radius, 6, 60);
+    for (const k of ['sling', 'ghost']) { const g = c.gadgets[k]; g.min = Math.round(lim(g.min, 0, 10)); g.max = Math.round(lim(g.max, g.min, 10)); }
     c.glass.breakSpeed = lim(c.glass.breakSpeed, 0, 30000); c.glass.keep = lim(c.glass.keep, 0, 1); c.glass.bounce = lim(c.glass.bounce, 0, 2);
     c.bounce.band = lim(c.bounce.band, 0, 3); c.bounce.bandKick = lim(c.bounce.bandKick, 0, 3000);
     c.ultimate.afterShots = Math.round(lim(c.ultimate.afterShots, 0, 50));
@@ -342,7 +348,11 @@
       br: K.ballRadius,    // aktueller Ballradius (der Ultimate-Ball wächst beim Fressen)
       eat: !!opts.kick && K.ultimate.eat,
       noArm: !!opts.noArm, // erster Schlag: Bomben werden noch nicht scharf
+      ghost: !!opts.ghost, // Ghost-Gadget: durch Pucks/Bälle, keine Effekte
+      gadgets: (opts.gadgets || []).map((g) => ({ id: g.id, type: g.type, x: g.x, y: g.y })),
+      picked: [],          // eingesammelte Gadget-IDs
     };
+    if (s.ghost) s.noArm = true;
     if (opts.glass) for (const i of opts.glass) s.glass[i] = true;
     // liegende Gegnerbälle: bewegliche Körper (am Ende der Puck-Liste, pb = Spieler-ID)
     if (opts.balls) for (const b of ballBodies(opts.balls, x, y)) s.pucks.push(b);
@@ -407,11 +417,12 @@
     return null;
   }
   /** Schlag-Modus aus Schlagnummer (1-basiert) – gleiche Regel auf Server und Client */
-  function shotMode(shotNo, ultUsed) {
+  /** sling: Spieler hat ein Sling-Gadget eingesammelt */
+  function shotMode(shotNo, ultUsed, sling) {
     const n = K.ultimate.afterShots;
     // >= statt ===: auch wenn ein Strafschlag (Zeit/Wasser) die Nummer überspringt, kommt der Ultimate noch
     if (n > 0 && !ultUsed && shotNo >= n + 1 && shotNo <= K.maxShots) return 'ult';
-    if (K.sling.steerTime > 0 && K.sling.shots.includes(shotNo)) return 'sling';
+    if (sling && K.sling.steerTime > 0) return 'sling';
     return null;
   }
 
@@ -514,10 +525,10 @@
   function inRect(z, x, y) { return x >= z.x1 && x <= z.x2 && y >= z.y1 && y <= z.y2; }
 
   /** Kräfte + Reibung für einen Körper; gibt false zurück, wenn er im Wasser landet */
-  function applyForces(cm, b, fric, extraAx, extraAy) {
+  function applyForces(cm, b, fric, extraAx, extraAy, ghost) {
     const SURF = K.surfaces;
     let ax = extraAx, ay = extraAy, surf = SURF.grass;
-    for (let i = 0; i < cm.zones.length; i++) {
+    for (let i = 0; !ghost && i < cm.zones.length; i++) { // Geist: kein Wasser, Sand, Eis, Hang, Boost
       const z = cm.zones[i];
       if (!inRect(z, b.x, b.y)) continue;
       if (z.kind === 'water') return false;
@@ -563,10 +574,10 @@
       let ex = 0, ey = 0;
       const hx = cm.hole.x - s.x, hy = cm.hole.y - s.y, hd = Math.sqrt(hx * hx + hy * hy);
       if (hd < HOLE_R && hd > 1e-6) { ex += (hx / hd) * K.holePull; ey += (hy / hd) * K.holePull; }
-      const g = holeGravity(cm, s.x, s.y, 1);
+      const g = s.ghost ? null : holeGravity(cm, s.x, s.y, 1);
       if (g) { ex += g[0]; ey += g[1]; }
       if (s.inputs && s.n * 2 + 1 < s.inputs.length) { ex += s.inputs[s.n * 2]; ey += s.inputs[s.n * 2 + 1]; }
-      if (cm.magnets) {
+      if (cm.magnets && !s.ghost) {
         const MR = K.magnet.radius, MS = K.magnet.strength;
         for (let i = 0; i < cm.magnets.length; i++) {
           const mg = cm.magnets[i], mx = mg.x - s.x, my = mg.y - s.y, md = Math.sqrt(mx * mx + my * my);
@@ -574,7 +585,7 @@
         }
       }
       // Feld-Pucks: Gravitation (zieht an) bzw. Abstoßung (drückt weg)
-      for (let i = 0; i < s.pucks.length; i++) {
+      for (let i = 0; !s.ghost && i < s.pucks.length; i++) {
         const q = s.pucks[i];
         if (!q.f || !q.alive) continue;
         const F = q.f === 'repel' ? K.pucks.repel : K.pucks.attract;
@@ -583,7 +594,7 @@
         const md = Math.sqrt(md2), u = 1 - md / F.radius, f = F.strength * u * u * (q.f === 'repel' ? -1 : 1);
         ex += mx / md * f; ey += my / md * f;
       }
-      if (cm.magBalls) { // magnetisierte Gegnerbälle ziehen an, auch wenn sie angestoßen wurden
+      if (cm.magBalls && !s.ghost) { // magnetisierte Gegnerbälle ziehen an, auch wenn sie angestoßen wurden
         const MR = K.magnet.radius, MS = K.magnet.strength;
         for (let i = 0; i < s.pucks.length; i++) {
           const q = s.pucks[i];
@@ -592,7 +603,7 @@
           if (md < MR && md > 1e-6) { const f = MS * (1 - md / MR); ex += mx / md * f; ey += my / md * f; }
         }
       }
-      if (cm.magPucks) { // magnetisierte Pucks ziehen den Ball an, auch während sie selbst rollen
+      if (cm.magPucks && !s.ghost) { // magnetisierte Pucks ziehen den Ball an, auch während sie selbst rollen
         const MR = K.magnet.radius, MS = K.magnet.strength;
         for (let i = 0; i < cm.magPucks.length; i++) {
           const q = s.pucks[cm.magPucks[i]];
@@ -601,7 +612,7 @@
           if (md < MR && md > 1e-6) { const f = MS * (1 - md / MR); ex += mx / md * f; ey += my / md * f; }
         }
       }
-      if (!applyForces(cm, s, 1, ex, ey)) { s.done = true; s.result = 'water'; }
+      if (!applyForces(cm, s, 1, ex, ey, s.ghost)) { s.done = true; s.result = 'water'; }
       else maxSp = s._sp;
     }
     // --- Pucks: Kräfte
@@ -619,7 +630,16 @@
     const sdt = DT / n;
     const ballSolid = s.result !== 'sunk' && s.result !== 'water';
     for (let k = 0; k < n; k++) {
-      if (!s.done) { s.x += s.vx * sdt; s.y += s.vy * sdt; collideStatic(cm, s, s.br, true, s); }
+      if (!s.done) {
+        s.x += s.vx * sdt; s.y += s.vy * sdt; collideStatic(cm, s, s.br, true, s);
+        // Gadgets einsammeln
+        for (let i = 0; i < s.gadgets.length; i++) {
+          const gd = s.gadgets[i];
+          if (gd.taken) continue;
+          const dx = gd.x - s.x, dy = gd.y - s.y, rr = K.gadgets.radius + s.br;
+          if (dx * dx + dy * dy < rr * rr) { gd.taken = true; s.picked.push(gd.id); s.pevents.push({ type: 'pickup', x: gd.x, y: gd.y, g: gd.type }); }
+        }
+      }
       for (let i = 0; i < s.pucks.length; i++) {
         const q = s.pucks[i];
         if (!q.alive || (q.vx === 0 && q.vy === 0)) continue;
@@ -638,6 +658,7 @@
             s.pevents.push({ type: 'eat', x: q.x, y: q.y, c: q.c, pb: q.pb });
             continue;
           }
+          if (s.ghost && !s.done) continue; // Geist fliegt durch Pucks und Bälle
           if (q.bomb && !q.armed && !s.done && touching(s, q, s.br, q.r)) arm(s, q);
           const imp = collidePair(s, s.done ? 0 : PK.ballMass, q, q.m, PK.bounce, s.br, q.r);
           if (imp > 40 && !s.done) { s.bounce = true; if (imp > s.hitV) { s.hitV = imp; s.hit = { kind: 'puck', c: q.c, m: q.m }; } }
@@ -725,7 +746,7 @@
     if (ppaths) for (let i = 0; i < s.pucks.length; i++) { const q = s.pucks[i]; ppaths[i].push(q.x, q.y); }
     return {
       x: s.x, y: s.y, result: s.done ? s.result : 'cut', steps: s.n, time: s.t, ballTime: ballDoneAt < 0 ? s.t : ballDoneAt,
-      points, bounces, ppaths, pucks: exportPucks(s), balls: blastBalls(s), glass: exportGlass(s), nb: s.nb,
+      points, bounces, ppaths, pucks: exportPucks(s), balls: blastBalls(s), glass: exportGlass(s), nb: s.nb, picked: s.picked,
     };
   }
 
@@ -898,6 +919,32 @@
     return out;
   }
 
+  /**
+   * Gadgets für einen Zug verteilen: von jeder Sorte min..max Stück, nicht in Wänden/Wasser,
+   * nicht am Loch, nicht auf Pucks oder Bällen. balls: [{x,y}]
+   */
+  function spawnGadgets(cm, seed, pucks, balls) {
+    const R = rng(seed >>> 0), G = K.gadgets, r = G.radius, out = [];
+    let id = 1;
+    for (const type of ['sling', 'ghost']) {
+      const n = G[type].min + Math.floor(R() * (G[type].max - G[type].min + 1));
+      for (let k = 0, tries = 0; k < n && tries < 3000; tries++) {
+        const x = r + 30 + R() * (cm.W - 2 * r - 60), y = r + 30 + R() * (cm.H - 2 * r - 60);
+        if ((x - cm.hole.x) ** 2 + (y - cm.hole.y) ** 2 < 140 * 140) continue;
+        if (cm.zones.some((z) => z.kind === 'water' && x > z.x1 - r && x < z.x2 + r && y > z.y1 - r && y < z.y2 + r)) continue;
+        if ((pucks || []).some((q) => q.alive !== false && (q.x - x) ** 2 + (q.y - y) ** 2 < (q.r + r + 12) ** 2)) continue;
+        if ((balls || []).some((b) => (b.x - x) ** 2 + (b.y - y) ** 2 < (r + 60) ** 2)) continue;
+        if (out.some((g) => (g.x - x) ** 2 + (g.y - y) ** 2 < 160 * 160)) continue;
+        const t = { x, y, vx: 0, vy: 0, hitV: 0 };
+        collideStatic(cm, t, r + 6, false);
+        if (t.x !== x || t.y !== y) continue;
+        out.push({ id: id++, type, x: Math.round(x), y: Math.round(y) });
+        k++;
+      }
+    }
+    return out;
+  }
+
   /** Map grob prüfen und bereinigen (Server + Editor) */
   function sanitizeMap(m) {
     if (!m || typeof m !== 'object') throw new Error('Ungültige Map');
@@ -939,7 +986,7 @@
   const api = {
     DT, DEFAULTS, DEFAULT_CONFIG,
     configure, compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap, spawnPucks, exportPucks, exportGlass, modeCfg, shotMode,
-    holePoints, shotBonus, dsin, dcos, blastState, blast, blastBalls, launchState, launch, ballBodies, bombCfg, canArm,
+    holePoints, shotBonus, dsin, dcos, blastState, blast, blastBalls, launchState, launch, ballBodies, bombCfg, canArm, spawnGadgets,
   };
   // Live-Werte (ändern sich mit configure)
   Object.defineProperties(api, {

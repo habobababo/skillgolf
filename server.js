@@ -136,10 +136,10 @@ function publicRoom(room) {
   return {
     code: room.code, hostId: room.hostId, phase: room.phase, holeIndex: room.holeIndex,
     playlist: room.playlist, settings: room.settings, ultBy: room.ult ? room.ult.pid : null,
-    turn: publicTurn(room), fuses: publicFuses(room),
+    turn: publicTurn(room), fuses: publicFuses(room), gadgets: room.gadgets || [],
     players: room.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, ultUsed: !!p.ultUsed, scores: p.scores, points: p.points, bonus: p.bonus || 0, shots: p.shots, done: p.done, sunk: p.sunk,
-      magnet: !!p.magnet, magnetPuck: p.magnet && p.magnetPuck != null ? p.magnetPuck : null, magnetLeft: p.magnetLeft ?? 0, gpuckLeft: p.gpuckLeft ?? 0,
+      magnet: !!p.magnet, magnetPuck: p.magnet && p.magnetPuck != null ? p.magnetPuck : null, magnetLeft: p.magnetLeft ?? 0, gpuckLeft: p.gpuckLeft ?? 0, slingNext: !!p.slingNext, ghostNext: !!p.ghostNext,
       ball: p.ball,
     })),
   };
@@ -169,6 +169,7 @@ function startHole(room) {
     p.magnet = false; p.magnetLeft = P.config.magnet.usesPerHole;
     p.bonus = 0; p.puckBonus = 0;
     p.gpuckLeft = P.config.gravityPuck.perHole;
+    p.slingNext = false; p.ghostNext = false;
     while (p.scores.length < room.holeIndex) p.scores.push(null);
     while (p.points.length < room.holeIndex) p.points.push(null);
   }
@@ -232,7 +233,7 @@ function fuseExpired(room) {
   setTimeout(() => {
     if (room.turn !== t || room.phase !== 'playing') return;
     const q = room.players.find((x) => x.id === t.id);
-    if (q && !q.done) beginTurn(room, t.id); else endTurn(room); // Spieler weg/fertig -> Nächster
+    if (q && !q.done) beginTurn(room, t.id, true); else endTurn(room); // Spieler weg/fertig -> Nächster
   }, ms);
 }
 
@@ -260,7 +261,7 @@ function handleGPuck(room, p, msg) {
   setTimeout(() => {
     if (room.turn !== t || room.phase !== 'playing') return;
     const q = room.players.find((x) => x.id === t.id);
-    if (q && !q.done) beginTurn(room, t.id); else endTurn(room); // gleicher Spieler schlägt jetzt (mit neuer Zeit)
+    if (q && !q.done) beginTurn(room, t.id, true); else endTurn(room); // gleicher Spieler schlägt jetzt (mit neuer Zeit)
   }, ms);
 }
 
@@ -284,8 +285,13 @@ function clearTurn(room) {
   if (room.turn) { clearTimeout(room.turn.timer); clearTimeout(room.turn.force); }
   room.turn = null;
 }
-function beginTurn(room, id) {
+/** keepGadgets: gleicher Zug geht weiter (nach Explosion / Gravity-Puck) -> Gadgets bleiben liegen */
+function beginTurn(room, id, keepGadgets) {
   clearTurn(room);
+  if (!keepGadgets || !room.gadgets) {
+    const balls = room.players.filter((q) => q.ball && !q.sunk).map((q) => q.ball);
+    room.gadgets = room.cm ? P.spawnGadgets(room.cm, (Math.random() * 2 ** 31) | 0, room.pucks, balls) : [];
+  }
   room.turnSeq = (room.turnSeq || 0) + 1;
   const T = P.config.turn.timeLimit;
   const t = room.turn = { id, seq: room.turnSeq, phase: 'aim', deadline: T ? Date.now() + T * 1000 : 0, idx: room.players.findIndex((q) => q.id === id) };
@@ -405,7 +411,18 @@ function finishPlayer(room, p, sunk) {
 }
 
 /** Modus des nächsten Schlags: 'ult' | 'sling' | null */
-function nextMode(p) { return P.shotMode(p.shots + 1, p.ultUsed); }
+function nextMode(p) { return P.shotMode(p.shots + 1, p.ultUsed, p.slingNext); }
+/** eingesammelte Gadgets auswerten: wirken beim nächsten Schlag */
+function applyPicks(room, p, picked) {
+  if (!picked || !picked.length) return;
+  for (const id of picked) {
+    const g = (room.gadgets || []).find((x) => x.id === id);
+    if (!g) continue;
+    if (g.type === 'sling') p.slingNext = true;
+    if (g.type === 'ghost') p.ghostNext = true;
+  }
+  room.gadgets = (room.gadgets || []).filter((x) => !picked.includes(x.id));
+}
 
 /** liegende Gegnerbälle als bewegliche Körper (eingelochte nicht) */
 function ballsOf(room, p) {
@@ -458,6 +475,10 @@ function handleShot(room, p, msg) {
   }
   const cmShot = P.withBalls(room.cm, [], from.x, from.y, magnets, magPucks, magBalls);
   const pucks0 = room.pucks, glass0 = room.glass || [];
+  const gadgets0 = room.gadgets || [];
+  const ghost = !!p.ghostNext; // Ghost-Gadget wirkt jetzt
+  if (mode === 'sling') p.slingNext = false;
+  p.ghostNext = false;
   p.shots++;
   const noArm = !P.canArm(p.shots); // erst ab dem 2. Schlag des Spielers werden Bomben scharf
   turnFlight(room);
@@ -467,15 +488,16 @@ function handleShot(room, p, msg) {
     // gesteuerter Schlag (Ultimate/Sling): Ergebnis steht erst fest, wenn die Steuerung vorbei ist
     if (mode === 'ult') p.ultUsed = true;
     const U = P.modeCfg(mode);
-    room.ult = { pid: p.id, mode, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, glass0, balls0, noArm, inputs: [], max: Math.round(U.steerTime / P.DT) * 2, accel: mode === 'ult' ? Math.max(U.steerAccel, P.config.ultimate.pullAccel) : U.steerAccel };
+    room.ult = { pid: p.id, mode, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, glass0, balls0, noArm, ghost, gadgets0, inputs: [], max: Math.round(U.steerTime / P.DT) * 2, accel: mode === 'ult' ? Math.max(U.steerAccel, P.config.ultimate.pullAccel) : U.steerAccel };
     room.ult.timer = setTimeout(() => finishUltimate(room), (U.steerTime / U.slowmo + 15) * 1000);
-    broadcast(room, { type: 'shot', seq, id: p.id, mode, ult: mode === 'ult', from, others: [], magnets, magPucks, magBalls, balls0, noArm, vx: v.vx, vy: v.vy, pucks0, glass0, shots: p.shots });
+    broadcast(room, { type: 'shot', seq, id: p.id, mode, ult: mode === 'ult', from, others: [], magnets, magPucks, magBalls, balls0, noArm, ghost, gadgets0, vx: v.vx, vy: v.vy, pucks0, glass0, shots: p.shots });
     return;
   }
 
-  const r = P.simulate(cmShot, from.x, from.y, v.vx, v.vy, { pucks: pucks0, glass: glass0, balls: balls0, noArm });
+  const r = P.simulate(cmShot, from.x, from.y, v.vx, v.vy, { pucks: pucks0, glass: glass0, balls: balls0, noArm, ghost, gadgets: gadgets0 });
+  applyPicks(room, p, r.picked);
   const gain = applyResult(room, p, from, r, r.time * 1000, pucks0);
-  broadcast(room, { type: 'shot', seq, id: p.id, from, others: [], magnets, magPucks, magBalls, balls0, noArm, balls: r.balls, vx: v.vx, vy: v.vy, pucks0, glass0, glass: r.glass, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
+  broadcast(room, { type: 'shot', seq, id: p.id, from, others: [], magnets, magPucks, magBalls, balls0, noArm, ghost, gadgets0, picked: r.picked, slingNext: !!p.slingNext, ghostNext: !!p.ghostNext, balls: r.balls, vx: v.vx, vy: v.vy, pucks0, glass0, glass: r.glass, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
   turnResolved(room, r.time * 1000);
 }
 
@@ -501,13 +523,14 @@ function finishUltimate(room) {
   clearTimeout(u.timer);
   room.ult = null;
   const p = room.players.find((q) => q.id === u.pid);
-  const r = P.simulate(u.cm, u.from.x, u.from.y, u.vx, u.vy, { pucks: u.pucks0, glass: u.glass0, balls: u.balls0, noArm: u.noArm, kick: u.mode === 'ult', inputs: u.inputs });
+  const r = P.simulate(u.cm, u.from.x, u.from.y, u.vx, u.vy, { pucks: u.pucks0, glass: u.glass0, balls: u.balls0, noArm: u.noArm, ghost: u.ghost, gadgets: u.gadgets0, kick: u.mode === 'ult', inputs: u.inputs });
   const seq = room.turn ? room.turn.seq : 0;
   if (!p) { room.pucks = r.pucks; room.glass = r.glass; applyBalls(room, r.balls); noteArmed(room); broadcast(room, { type: 'shotEnd', seq, id: u.pid, pucks: r.pucks, glass: r.glass, balls: r.balls, gone: true }); turnResolved(room, 0); return; }
   const steerT = (u.inputs.length / 2) * P.DT;
   const rest = Math.max(0, r.time - steerT) * 1000;
+  applyPicks(room, p, r.picked);
   const gain = applyResult(room, p, u.from, r, rest, u.pucks0);
-  broadcast(room, { type: 'shotEnd', seq, id: p.id, n: u.inputs.length / 2, pucks: r.pucks, glass: r.glass, balls: r.balls, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
+  broadcast(room, { type: 'shotEnd', seq, id: p.id, n: u.inputs.length / 2, picked: r.picked, slingNext: !!p.slingNext, ghostNext: !!p.ghostNext, pucks: r.pucks, glass: r.glass, balls: r.balls, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
   // Zuschauer hängen beim Steuern etwas hinterher (Puffer + Zeitlupe) -> großzügiger Timeout
   turnResolved(room, rest, (P.modeCfg(u.mode).steerTime / P.modeCfg(u.mode).slowmo) * 1000 * 0.5);
 }

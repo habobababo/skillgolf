@@ -5,7 +5,9 @@ Multiplayer-Minigolf im Browser mit eigenem Map-Editor.
 - **Schleuder-Steuerung**: Irgendwo klicken und ziehen. Die Distanz zum Klickpunkt bestimmt die Kraft, der Ball fliegt in Zugrichtung. Beim Loslassen wird geschlagen.
 - **Neon-Arcade-Look** mit flackerndem Titel samt Neon-Brummen und -Knistern und vielen weiteren Effekten: Leuchtschweife hinter jedem Ball, Funken bei Treffern, aufblitzende Bumper, Screenshake, Wasser-Splash, Lochwirbel, Feuerwerk bei Birdie und Hole-in-One sowie synthetische Sounds (WebAudio, `M` schaltet den Ton stumm).
 - **Pucks**: Auf jeder Bahn liegen mindestens 10 Pucks an zufälligen Stellen. Sie werden echt simuliert und lassen sich anstoßen. Grün ist leicht, gelb mittel, rot schwer und kaum zu bewegen. Pucks können im Wasser versinken, und die Vorschau zeigt auch ihre Bahnen.
-- **SLING BALL**: Schlag 2 und 4 sind Sling-Schläge. Nach dem Abschlag lenkst du den Ball 2,5 Sekunden lang mit der Maus, in leichter Zeitlupe.
+- **Gadgets zum Einsammeln**: Zu jedem Zug erscheinen an zufälligen Stellen Gadgets, mindestens eins von jeder Sorte. Beim nächsten Zug verschwinden sie wieder. Rollt dein Ball darüber, sammelst du es ein, und es wirkt bei deinem nächsten Schlag. Die Vorschau zeigt, welches Gadget dein Schlag einsammeln würde.
+  - 🌀 **SLING**: Der nächste Schlag ist ein Sling-Ball. Nach dem Abschlag lenkst du den Ball 2,5 Sekunden lang mit der Maus, in leichter Zeitlupe.
+  - 👻 **GHOST**: Der nächste Schlag ist ein Geist. Er fliegt durch Pucks und Gegnerbälle und ist immun gegen alle Effekte: Feld-Pucks, Magnete, Sog des schwarzen Lochs, Hänge, Boosts, Sand, Eis und Wasser. Bomben macht er nicht scharf. Wände und Glas halten ihn weiter auf, einlochen kann er normal.
 - **ULTIMATE BALL**: Nach 5 Schlägen erscheint „next BALL is ULTIMATE BALL“, und der nächste Schlag ist erzwungen ein Ultimate-Schlag. Der Ball startet mit halber Geschwindigkeit, dann läuft das Spiel in Zeitlupe und du steuerst den Ball 6 Sekunden lang mit der Maus. Hältst du dabei die **linke Maustaste** gedrückt, zieht ein Zugstrahl den Ball direkt zum Mauszeiger. Der Hinweis dazu steht oben im Bild. Dabei **frisst er gnadenlos alles auf seinem Weg** und wird mit jedem Bissen größer: Pucks, Bomben, Gegnerbälle, Wände, Blöcke, Bumper, Gummibänder und Glas. Gefressene Hindernisse bleiben bis zum Ende der Bahn weg. Gefressene Gegnerbälle landen wieder am Abschlag, das kostet sie aber keinen Schlag. Nur der Außenrand hält stand. Die anderen Spieler sehen das live und können währenddessen nicht schlagen.
 - **Gegnerbälle sind beweglich**: Triffst du einen liegenden Gegnerball, schubst du ihn weg (Billard!). Fällt er dabei ins Wasser oder ins Loch, kommt er an seine alte Stelle zurück. Die Vorschau zeigt auch, wohin er rollt.
 - **Gummibänder** (orange, mit Pfosten): Der Ball prallt schneller zurück, als er kam, und das Band schwingt nach.
@@ -104,7 +106,8 @@ nano config.json
 | `ultimate.launchFactor` | 0.5 | Startgeschwindigkeit des Ultimate-Balls relativ zum normalen Schlag |
 | `ultimate.slowmo` | 0.3 | Zeitlupen-Faktor |
 | `ultimate.steerTime` / `ultimate.steerAccel` | 6 / 2600 | Wie lange (Spielsekunden) und wie stark der Ball gesteuert wird |
-| `sling.shots` | [2, 4] | Schlagnummern, die Sling-Schläge sind (`[]` = aus) |
+| `gadgets.sling` / `gadgets.ghost` | `min` 1, `max` 2 | Wie viele Gadgets jeder Sorte pro Zug erscheinen |
+| `gadgets.radius` | 16 | Größe der Gadgets |
 | `sling.launchFactor` / `sling.slowmo` | 1 / 0.6 | Startgeschwindigkeit und Zeitlupe beim Sling |
 | `sling.steerTime` / `sling.steerAccel` | 2.5 / 1800 | Lenkdauer und Lenkstärke beim Sling |
 | `turn.timeLimit` | 23 | Sekunden pro Zug, danach ist der Nächste dran (0 = unbegrenzt) |

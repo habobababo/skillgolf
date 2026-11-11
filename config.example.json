@@ -44,6 +44,17 @@
     "perHole": 1,
     "speed": 1
   },
+  "gadgets": {
+    "radius": 16,
+    "sling": {
+      "min": 1,
+      "max": 2
+    },
+    "ghost": {
+      "min": 1,
+      "max": 2
+    }
+  },
   "glass": {
     "breakSpeed": 1100,
     "keep": 0.55,
@@ -122,10 +133,6 @@
     "maxScale": 3
   },
   "sling": {
-    "shots": [
-      2,
-      4
-    ],
     "launchFactor": 1,
     "slowmo": 0.6,
     "steerTime": 2.5,

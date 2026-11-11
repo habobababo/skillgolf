@@ -493,6 +493,38 @@
     ctx.restore();
   }
 
+  // ------------------------------------------------------------ Gadgets
+  const GADGET_COL = { sling: '#00eaff', ghost: '#e8e4ff' };
+  const GADGET_NAME = { sling: 'Sling (nächster Schlag lenkbar)', ghost: 'Ghost (nächster Schlag durch Pucks, immun gegen Effekte)' };
+  /** Gadgets zeichnen; hl: Set mit IDs, die die Vorschau einsammeln würde */
+  function drawGadgets(ctx, list, t, hl) {
+    if (!list) return;
+    const R = P.config.gadgets.radius;
+    for (const g of list) {
+      if (g.taken) continue;
+      const c = GADGET_COL[g.type] || '#fff', bob = Math.sin(t * 3 + g.id) * 3, x = g.x, y = g.y + bob;
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      // Lichtkegel + rotierender Ring
+      const gr = ctx.createRadialGradient(x, y, 2, x, y, R * 2.4);
+      gr.addColorStop(0, g.type === 'ghost' ? 'rgba(232,228,255,0.35)' : 'rgba(0,234,255,0.35)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, y, R * 2.4, 0, 7); ctx.fill();
+      ctx.strokeStyle = c; ctx.lineWidth = 2.5; glow(ctx, c, 16);
+      ctx.setLineDash([6, 5]); ctx.lineDashOffset = -t * 30;
+      ctx.beginPath(); ctx.arc(x, y, R + 4, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+      if (hl && hl.has(g.id)) { ctx.lineWidth = 4; ctx.globalAlpha = 0.6 + Math.sin(t * 12) * 0.4; ctx.beginPath(); ctx.arc(x, y, R + 12, 0, 7); ctx.stroke(); ctx.globalAlpha = 1; }
+      noGlow(ctx);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = 'rgba(10,8,30,0.85)'; ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fill();
+      ctx.font = `${Math.round(R * 1.2)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      if (g.type === 'ghost') { ctx.globalAlpha = 0.7 + Math.sin(t * 5 + g.id) * 0.3; ctx.fillText('👻', x, y + 1); }
+      else { ctx.save(); ctx.translate(x, y); ctx.rotate(t * 2); ctx.fillText('🌀', 0, 1); ctx.restore(); }
+      ctx.globalAlpha = 1;
+      ctx.font = '800 9px system-ui, sans-serif'; ctx.fillStyle = c; glow(ctx, c, 8);
+      ctx.fillText(g.type === 'ghost' ? 'GHOST' : 'SLING', x, y + R + 12); noGlow(ctx);
+      ctx.restore();
+    }
+  }
+
   /** Leuchtschweif (Kurve) – pts: [x,y,...]; head = Anteil der letzten Punkte, die hell leuchten */
   function drawTrail(ctx, pts, color, alpha) {
     if (!pts || pts.length < 4) return;
@@ -779,6 +811,7 @@
       this.noise(1.0, 0.5, 6000, 100); this.tone(55, 1.4, 'sine', 0.5, 25);
       [392, 523, 659, 784].forEach((f, i) => this.tone(f, 0.5, 'sawtooth', 0.06, f * 1.5, 0.05 + i * 0.06));
     }
+    pickup(g) { if (g === 'ghost') { this.tone(600, 0.5, 'sine', 0.14, 1200); this.tone(900, 0.5, 'triangle', 0.08, 1500, 0.08); } else { this.tone(500, 0.12, 'square', 0.1, 1000); this.tone(1000, 0.18, 'square', 0.1, 1600, 0.1); } }
     sling() { this.tone(300, 0.35, 'sawtooth', 0.08, 1400); this.tone(900, 0.2, 'sine', 0.12, 2400, 0.05); this.noise(0.25, 0.15, 3000, 800, 0, 'bandpass'); }
     turn() { [660, 880, 1320].forEach((f, i) => this.tone(f, 0.18, 'triangle', 0.14, null, i * 0.08)); }
     magnet() { this.tone(110, 0.9, 'sawtooth', 0.12, 220); this.tone(220, 0.9, 'square', 0.05, 440); this.noise(0.6, 0.12, 400, 2000, 0, 'bandpass'); }
@@ -941,10 +974,10 @@
       const mode = this.opts.shotMode ? this.opts.shotMode() : null;
       const kick = mode === 'ult';
       // volle Genauigkeit: gerundete Schlüssel ließen eine veraltete Vorschau stehen, obwohl mit dem exakten Winkel geschlagen wird
-      const key = ball.x + ',' + ball.y + ',' + this.angle + ',' + pw + ',' + maxTime + ',' + (pk ? pk.ver : 0) + ',' + mode + ',' + (pk && pk.glass ? pk.glass.join('.') : '') + (pk && pk.noArm ? 'n' : '');
+      const key = ball.x + ',' + ball.y + ',' + this.angle + ',' + pw + ',' + maxTime + ',' + (pk ? pk.ver : 0) + ',' + mode + ',' + (pk && pk.glass ? pk.glass.join('.') : '') + (pk && pk.noArm ? 'n' : '') + (pk && pk.ghost ? 'g' : '') + (pk && pk.gadgets ? pk.gadgets.map((g) => g.id + '@' + g.x + ',' + g.y).join(';') : '');
       if (key !== this.predKey || cm !== this.predCm) {
         const v = P.shotVelocity(this.angle, pw, mode);
-        this.pred = P.simulate(cm, ball.x, ball.y, v.vx, v.vy, { record: true, every: 2, maxTime, pucks: pk ? pk.list : null, glass: pk ? pk.glass : null, noArm: pk ? pk.noArm : false, kick });
+        this.pred = P.simulate(cm, ball.x, ball.y, v.vx, v.vy, { record: true, every: 2, maxTime, pucks: pk ? pk.list : null, glass: pk ? pk.glass : null, noArm: pk ? pk.noArm : false, ghost: pk ? !!pk.ghost : false, gadgets: pk ? pk.gadgets : null, kick });
         this.predKey = key; this.predCm = cm;
       }
       return this.pred;
@@ -1010,7 +1043,7 @@
       this.local = !!opts.local;
       this.inputs = []; this.sent = 0; this.ended = !this.ult; this.endSent = false;
       this.steerSteps = this.ult ? Math.round(this.mc.steerTime / P.DT) : 0;
-      this.s = P.createState(from.x, from.y, vx, vy, opts.pucks || [], { kick: this.mode === 'ult', inputs: this.ult ? this.inputs : null, glass: opts.glass, balls: opts.balls, noArm: opts.noArm });
+      this.s = P.createState(from.x, from.y, vx, vy, opts.pucks || [], { kick: this.mode === 'ult', inputs: this.ult ? this.inputs : null, glass: opts.glass, balls: opts.balls, noArm: opts.noArm, ghost: opts.ghost, gadgets: opts.gadgets });
       this.trail = [from.x, from.y]; this.fade = 0; this.events = []; this.zmask = this.zoneMask(); this.timeScale = 1;
       this.px = from.x; this.py = from.y; this.pp = this.s.pucks.map((q) => [q.x, q.y]);
       this.buffering = this.ult && !this.local; // Mitspieler: erst etwas Eingaben puffern
@@ -1199,6 +1232,12 @@
       } else if (e.type === 'launch') {
         fx.spark(e.x, e.y, '#c36bff', 24, 380, { life: 0.5 }); fx.ring(e.x, e.y, '#c36bff', 50, 0.4, 4);
         if (sfx) sfx.launch();
+      } else if (e.type === 'pickup') {
+        const c = GADGET_COL[e.g] || '#fff';
+        fx.spark(e.x, e.y, c, 36, 420, { life: 0.6 }); fx.spark(e.x, e.y, '#ffffff', 14, 260, { life: 0.4 });
+        fx.ring(e.x, e.y, c, 70, 0.5, 5); fx.ring(e.x, e.y, '#fff', 40, 0.35, 3);
+        fx.text(e.x, e.y - 34, e.g === 'ghost' ? '👻 GHOST!' : '🌀 SLING!', c, 30);
+        if (sfx) sfx.pickup(e.g);
       } else if (e.type === 'debris') {
         const c = e.f ? FIELD_COL[e.f] : (PUCK_COL[e.c] || '#fff');
         fx.spark(e.x, e.y, c, e.f ? 30 : 10, e.f ? 320 : 180, { life: 0.5 });
@@ -1330,5 +1369,5 @@
 
 
 
-  window.Skill = { NEON, PUCK_COL, PUCK_NAME, FIELD_COL, FIELD_NAME, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, BlastAnim, FX, SFX, animFx, roundRect, powerColor };
+  window.Skill = { NEON, PUCK_COL, PUCK_NAME, FIELD_COL, FIELD_NAME, GADGET_COL, GADGET_NAME, drawGadgets, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, BlastAnim, FX, SFX, animFx, roundRect, powerColor };
 })();
