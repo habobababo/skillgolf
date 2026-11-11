@@ -881,7 +881,7 @@
           ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = '#e8e4ff'; ctx.lineWidth = 2; ctx.globalAlpha = 0.5 + Math.sin(t * 6) * 0.3;
           ctx.setLineDash([3, 5]); ctx.lineDashOffset = t * 20; ctx.beginPath(); ctx.arc(pos.x, pos.y, P.BALL_R * sc + 9, 0, 7); ctx.stroke(); ctx.restore();
         }
-        S.drawBall(ctx, pos.x, pos.y, p.color, p.id === myId ? null : p.name, (p.id === myId ? 1 : 0.85) * (a && !a.ballDone && a.s && a.s.ghost ? 0.45 : 1), null, 0, sc);
+        S.drawBall(ctx, pos.x, pos.y, p.color, p.id === myId ? null : p.name, (p.id === myId ? 1 : 0.9) * (a && !a.ballDone && a.s && a.s.ghost ? 0.45 : 1), null, 0, sc, p.id === myId);
       }
       if (mine && mine.ball) {
         ctrl.update(dt, mine.ball);

@@ -348,9 +348,31 @@
   }
 
   // ------------------------------------------------------------ Bälle & Schweife
-  function drawBall(ctx, x, y, color, label, alpha, img, rot, scale) {
+  /** me = eigener Ball: deutlich hervorgehoben (Halo, pulsierender Ring, „DU“-Markierung) */
+  function drawBall(ctx, x, y, color, label, alpha, img, rot, scale, me) {
     const hasImg = img && img.complete && img.naturalWidth > 0;
     const r = P.BALL_R * (hasImg ? 2.2 : 1) * (scale || 1);
+    const tt = performance.now() / 1000;
+    if (me) { // eigener Ball: großer Lichthof, zwei Ringe, Pfeil mit „DU“
+      ctx.save(); ctx.globalAlpha = alpha == null ? 1 : alpha; ctx.globalCompositeOperation = 'lighter';
+      const h = ctx.createRadialGradient(x, y, r, x, y, r * 7);
+      h.addColorStop(0, color); h.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.globalAlpha *= 0.35; ctx.fillStyle = h; ctx.beginPath(); ctx.arc(x, y, r * 7, 0, 7); ctx.fill();
+      ctx.globalAlpha = alpha == null ? 1 : alpha;
+      const pr = r + 7 + (Math.sin(tt * 5) + 1) * 3;
+      ctx.strokeStyle = color; ctx.lineWidth = 3; glow(ctx, color, 18);
+      ctx.beginPath(); ctx.arc(x, y, pr, 0, 7); ctx.stroke();
+      ctx.lineWidth = 2; ctx.setLineDash([5, 6]); ctx.lineDashOffset = -tt * 30;
+      ctx.beginPath(); ctx.arc(x, y, pr + 8, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+      // Pfeil + „DU“
+      const ay = y - pr - 14 - Math.abs(Math.sin(tt * 4)) * 5;
+      ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = color;
+      ctx.beginPath(); ctx.moveTo(x, ay + 8); ctx.lineTo(x - 7, ay); ctx.lineTo(x + 7, ay); ctx.closePath(); ctx.fill();
+      ctx.font = '900 13px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.strokeText('DU', x, ay - 4);
+      ctx.fillStyle = '#fff'; ctx.fillText('DU', x, ay - 4);
+      noGlow(ctx); ctx.restore();
+    }
     if (scale > 1.01) { // gefräßiger Ultimate-Ball: pulsierender Schlund
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
       const tt = performance.now() / 1000;
@@ -373,11 +395,14 @@
       ctx.drawImage(img, x - r, y - r, r * 2, r * 2); // Kopf bleibt aufrecht
       ctx.restore();
     }
-    ctx.strokeStyle = color; ctx.lineWidth = hasImg ? 2.5 : 3; glow(ctx, color, 14);
+    ctx.strokeStyle = color; ctx.lineWidth = hasImg ? 2.5 : me ? 4 : 3.5; glow(ctx, color, me ? 20 : 14);
     ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.stroke(); noGlow(ctx);
+    // dunkler Außenrand: Ball hebt sich auch vor hellen Effekten ab
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, r + 2.2, 0, 7); ctx.stroke();
     if (label) {
-      ctx.font = '600 12px system-ui, sans-serif'; ctx.textAlign = 'center';
-      glow(ctx, color, 8); ctx.fillStyle = color; ctx.fillText(label.toUpperCase(), x, y - r - 9); noGlow(ctx);
+      ctx.font = '700 12px system-ui, sans-serif'; ctx.textAlign = 'center';
+      ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.strokeText(label.toUpperCase(), x, y - r - 10);
+      glow(ctx, color, 8); ctx.fillStyle = color; ctx.fillText(label.toUpperCase(), x, y - r - 10); noGlow(ctx);
     }
     ctx.restore();
   }
@@ -663,8 +688,19 @@
         ctx.strokeStyle = '#ff3860'; ctx.lineWidth = 3; glow(ctx, '#ff3860', 14);
         ctx.beginPath(); ctx.moveTo(ex - 8, ey - 8); ctx.lineTo(ex + 8, ey + 8); ctx.moveTo(ex + 8, ey - 8); ctx.lineTo(ex - 8, ey + 8); ctx.stroke();
       } else if (pred.result === 'rest') {
-        ctx.strokeStyle = color; ctx.lineWidth = 2; glow(ctx, color, 10);
-        ctx.beginPath(); ctx.arc(ex, ey, P.BALL_R + 2, 0, 7); ctx.stroke();
+        // Endposition: deutliches Abbild des eigenen Balls mit Fadenkreuz und pulsierendem Ring
+        const R = P.BALL_R, pr = R + 9 + Math.sin(t * 6) * 2.5;
+        ctx.globalAlpha = ghost ? 0.5 : 0.9;
+        ctx.fillStyle = color; glow(ctx, color, 22);
+        ctx.beginPath(); ctx.arc(ex, ey, R, 0, 7); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.beginPath(); ctx.arc(ex, ey, R * 0.45, 0, 7); ctx.fill();
+        ctx.strokeStyle = color; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(ex, ey, pr, 0, 7); ctx.stroke();
+        ctx.lineWidth = 2.5;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          ctx.beginPath(); ctx.moveTo(ex + dx * (pr + 3), ey + dy * (pr + 3)); ctx.lineTo(ex + dx * (pr + 11), ey + dy * (pr + 11)); ctx.stroke();
+        }
+        noGlow(ctx);
       }
     }
     ctx.restore();
