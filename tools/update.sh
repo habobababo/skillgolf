@@ -16,6 +16,17 @@ export GIT_TERMINAL_PROMPT=0   # nie interaktiv nach Passwort fragen (würde im 
 
 fail() { echo "FEHLER: $*"; exit 2; }
 
+ROOT="$(pwd -P)"
+# Gehört der Ordner einem anderen Benutzer (z. B. root), verweigert Git sonst die Arbeit
+# ("dubiose Besitzverhältnisse"). Wir erlauben genau diesen Ordner – nur für diesen Aufruf.
+git() { command git -c safe.directory="$ROOT" "$@"; }
+
+# Darf der Server-Benutzer hier überhaupt schreiben?
+if [ ! -w "$ROOT" ] || [ ! -w "$ROOT/.git" ] || [ -n "$(find "$ROOT/.git" "$ROOT/public" "$ROOT/shared" ! -writable -print -quit 2>/dev/null)" ]; then
+  OWNER="$(stat -c %U "$ROOT" 2>/dev/null || echo ?)"
+  fail "Keine Schreibrechte im Ordner $ROOT (gehört: $OWNER, Updater läuft als: $(id -un)). Einmalig auf dem Server ausführen: sudo chown -R $(id -un): $ROOT"
+fi
+
 [ -d .git ] || fail "Kein Git-Repo. Skillgolf muss per 'git clone' installiert sein, damit der Updater funktioniert."
 
 TOKEN="${GITHUB_TOKEN:-}"
@@ -43,7 +54,7 @@ case "$URL" in
   https://*@github.com/*) CLEAN="https://github.com/${URL#*@github.com/}"; git remote set-url "$REMOTE" "$CLEAN"; URL="$CLEAN"; echo "Zugangsdaten aus der Repo-Adresse entfernt." ;;
 esac
 
-GIT=(git)
+GIT=(git)   # die Funktion oben (mit safe.directory)
 if [ -n "$TOKEN" ]; then
   case "$URL" in
     https://github.com/*)

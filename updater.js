@@ -24,7 +24,7 @@ module.exports = function createUpdater({ root, activePlayers, notifyAll }) {
 
   function version() {
     try {
-      const out = execFileSync('git', ['log', '-1', '--format=%h|%cI|%s'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      const out = execFileSync('git', ['-c', `safe.directory=${root}`, 'log', '-1', '--format=%h|%cI|%s'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
       const [hash, date, ...msg] = out.split('|');
       return { hash, date, subject: msg.join('|') };
     } catch { return { hash: null, date: null, subject: 'kein Git-Repo' }; }
