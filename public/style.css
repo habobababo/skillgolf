@@ -16,7 +16,8 @@ label input, label select { margin-top: 4px; }
 .hidden { display: none !important; }
 
 .screen { display: none; position: fixed; inset: 0; }
-.screen.active { display: flex; align-items: center; justify-content: center; }
+.screen.active { display: flex; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.screen > .card { margin: auto; } /* zentriert, aber scrollbar statt oben abgeschnitten (Handy quer) */
 #menu, #lobby { background: radial-gradient(circle at 30% 20%, #1b1250, #04040b 65%), #04040b; }
 #menu::before, #lobby::before { content: ''; position: absolute; inset: 0; background-image: linear-gradient(rgba(110,130,255,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(110,130,255,.07) 1px, transparent 1px); background-size: 40px 40px; animation: gridmove 8s linear infinite; pointer-events: none; }
 @keyframes gridmove { to { background-position: 40px 40px; } }
@@ -165,3 +166,49 @@ table.score .ptot { color: #ffe03a; text-shadow: 0 0 8px rgba(255,224,58,.6); fo
 @keyframes tpop { 0% { transform: translateX(-50%) scale(1.35); } 100% { transform: translateX(-50%) scale(1); } }
 #bigTimer small { display: block; font-size: 12px; letter-spacing: 3px; text-align: center; opacity: .8; font-weight: 700; margin-top: 2px; }
 @media (max-width: 800px) { #bigTimer { top: 70px; } }
+
+/* ------------------------------------------------------------ Handy / Tablet */
+body { -webkit-tap-highlight-color: transparent; }
+button, a, .mapitem { touch-action: manipulation; }
+.touchonly { display: none; }
+body.touch .touchonly { display: block; }
+body.touch .mouseonly { display: none; }
+#btnBoard { display: none; }
+.logo { font-size: clamp(34px, 12vw, 56px); white-space: nowrap; }
+#rotateHint { display: none; position: absolute; inset: 0; z-index: 50; background: rgba(4,4,11,.94); flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; padding: 24px; }
+#rotateHint b { font-size: 22px; color: #00eaff; text-shadow: 0 0 12px #00eaff; letter-spacing: 1px; text-transform: uppercase; }
+#rotateHint span { color: #8f9ae0; max-width: 280px; }
+#rotateHint .rot { font-size: 64px; animation: rotph 1.8s ease-in-out infinite; }
+@keyframes rotph { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+@media (orientation: portrait) { body.touch.ingame:not(.rotok) #rotateHint { display: flex; } }
+
+/* kleine Bildschirme (Handy quer/hochkant, kleine Tablets): schlanke Leiste, Rangliste als Schublade */
+@media (max-width: 900px), (max-height: 560px) {
+  #hud { height: 38px; padding: 0 8px; padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); gap: 8px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  #hud::-webkit-scrollbar { display: none; }
+  .hudleft, .hudright { gap: 8px; }
+  #hudMap, #hudPar, #hudPower { display: none; }
+  #hudHole, #hudTurn, #hudTimer { font-size: 13px; }
+  #hud button.small { padding: 5px 8px; font-size: 11px; letter-spacing: 0; }
+  #shotDots { gap: 4px; } #shotDots i { width: 9px; height: 9px; }
+  #ultBadge { font-size: 11px; padding: 2px 8px; }
+  #cv { top: 38px; height: calc(100% - 38px); width: 100%; right: 0; }
+  #board { display: none; top: 38px; width: min(290px, 82vw); z-index: 20; box-shadow: -12px 0 40px rgba(0,0,0,.8); padding-right: max(10px, env(safe-area-inset-right)); }
+  #board.open { display: block; }
+  #btnBoard { display: inline-block; }
+  #btnBoard.on { border-color: #ffe03a; color: #ffe03a; }
+  #overlay, #ultBanner { top: 38px; right: 0; }
+  #ultBanner b { font-size: 44px; } #ultBanner small { font-size: 18px; }
+  #chat { display: none; }
+  #toasts { left: 50%; top: 46px; }
+  .toast { font-size: 13px; padding: 6px 12px; }
+  .toast.big { font-size: 18px; padding: 8px 16px; }
+  #btnMagnet { left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); padding: 10px 20px; font-size: 14px; letter-spacing: 2px; }
+  #bigTimer { top: 48px; }
+  #overlay .card { padding: 16px; max-height: 92%; }
+  .card { padding: 20px; }
+}
+body.touch #gpHint kbd { display: none; }
+@media (max-width: 900px), (max-height: 560px) { #gpHint span { display: none; } }
+@media (max-width: 900px), (max-height: 560px) { .lbl { display: none; } .screen > .card { margin: 12px auto; } }
+@media (max-width: 1600px) { #hud .lbl { display: none; } }

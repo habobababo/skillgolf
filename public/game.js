@@ -366,6 +366,24 @@
   // ------------------------------------------------------------ Bildschirme
   function show(id) {
     for (const s of document.querySelectorAll('.screen')) s.classList.toggle('active', s.id === id);
+    document.body.classList.toggle('ingame', id === 'game');
+    if (id !== 'game') { $('board').classList.remove('open'); $('btnBoard').classList.remove('on'); }
+  }
+  // ------------------------------------------------------------ Handy / Tablet
+  if (S.TOUCH) document.body.classList.add('touch');
+  $('btnBoard').onclick = () => { const o = $('board').classList.toggle('open'); $('btnBoard').classList.toggle('on', o); $('btnBoard').blur(); };
+  $('btnRotOk').onclick = () => document.body.classList.add('rotok');
+  { // Vollbild (Android/Tablets; iPhone-Safari kann das nicht – dort „Zum Home-Bildschirm“)
+    const el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (S.TOUCH && req) $('btnFull').classList.remove('hidden');
+    $('btnFull').onclick = async () => {
+      $('btnFull').blur();
+      try {
+        if (document.fullscreenElement || document.webkitFullscreenElement) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+        await req.call(el);
+        if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape').catch(() => {});
+      } catch { /* nicht erlaubt */ }
+    };
   }
 
   function toast(text, big) {

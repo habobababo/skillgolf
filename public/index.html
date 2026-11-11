@@ -3,7 +3,12 @@
 <head>
 <meta charset="utf-8">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⛳</text></svg>">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#04040b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Skillgolf">
 <title>SKILLGOLF</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -22,7 +27,11 @@
       <button id="btnJoin">Beitreten</button>
     </div>
     <a class="link" href="/editor">🛠 Map-Editor öffnen</a>
-    <div class="help">
+    <div class="help touchonly">
+      <b>Steuerung:</b> Irgendwo auf der Bahn <b>antippen &amp; ziehen</b> – je weiter, desto stärker; der Ball fliegt in Zugrichtung · loslassen schlägt ·
+      zum Abbrechen zurück zum Startpunkt ziehen oder mit <b>zweitem Finger tippen</b> · <b>🏆</b> zeigt die Rangliste · <b>⛶</b> Vollbild · am besten <b>quer</b> spielen
+    </div>
+    <div class="help mouseonly">
       <b>Steuerung:</b> Irgendwo <b>klicken &amp; ziehen</b> – je weiter weg vom Klickpunkt, desto stärker; der Ball fliegt in Zugrichtung · loslassen schlägt ·
       <b>←/→</b> Feinjustierung (Shift = grob) · <b>Leertaste</b> schlägt mit der Vorschau-Kraft (<b>↑/↓</b>) · <b>Rechtsklick/Esc</b> abbrechen · <b>M</b> Ton · <b>G</b> Magnet
     </div>
@@ -69,10 +78,12 @@
     <span id="ultBadge" class="hidden">⚡ ULTIMATE BALL</span>
     <div class="hudright">
       <span id="hudPower"></span>
+      <button id="btnBoard" class="small ghost" title="Rangliste">🏆</button>
+      <button id="btnFull" class="small ghost hidden" title="Vollbild">⛶</button>
       <button id="btnMute" class="small ghost" title="Ton an/aus (M)">🔊</button>
       <button id="btnFx" class="small ghost" title="Grafik: volle Effekte / Spar-Modus">✨</button>
-      <button id="btnSkip" class="small ghost">Bahn überspringen</button>
-      <button id="btnQuit" class="small ghost">Verlassen</button>
+      <button id="btnSkip" class="small ghost" title="Bahn überspringen">⏭<span class="lbl"> Bahn überspringen</span></button>
+      <button id="btnQuit" class="small ghost" title="Verlassen">🚪<span class="lbl"> Verlassen</span></button>
     </div>
   </div>
   <canvas id="cv"></canvas>
@@ -82,6 +93,7 @@
   <div id="overlay" class="hidden"></div>
   <div id="ultBanner"><small>next BALL is</small><b>ULTIMATE BALL</b></div>
   <button id="btnMagnet" class="hidden" title="Taste G">🧲 MAGNETISIEREN</button>
+  <div id="rotateHint"><div class="rot">📱</div><b>Dreh dein Handy quer</b><span>Die Bahnen sind breit – quer siehst du viel mehr.</span><button id="btnRotOk" class="small ghost">Trotzdem hochkant spielen</button></div>
   <form id="chat"><div id="chatlog"></div><input id="chatIn" maxlength="200" placeholder="Chat (Enter)"></form>
 </section>
 

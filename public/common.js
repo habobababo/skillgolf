@@ -21,7 +21,10 @@
   const PUCK_NAME = { light: 'leicht', medium: 'mittel', heavy: 'schwer' };
   const FIELD_COL = { attract: '#c36bff', repel: '#ff9a3c' };
   const FIELD_NAME = { attract: 'Gravitation (zieht an)', repel: 'Abstoßung (drückt weg)' };
-  const MAX_DRAG = () => P.config.dragDistance; // CSS-Pixel Ziehweg für 100 % Kraft
+  // Touch-Gerät (Handy/Tablet)? -> kürzerer Ziehweg, Zwei-Finger-Abbruch, Layout-Anpassungen
+  const TOUCH = typeof window !== 'undefined' && !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  // CSS-Pixel Ziehweg für 100 % Kraft; auf kleinen Touch-Bildschirmen kürzer, damit volle Kraft auf den Schirm passt
+  const MAX_DRAG = () => (TOUCH ? Math.min(P.config.dragDistance, Math.max(110, Math.min(window.innerWidth, window.innerHeight) * 0.42)) : P.config.dragDistance);
 
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
   function hash(n) { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); }
@@ -42,7 +45,7 @@
       if (c.width !== Math.round(r.width * dpr) || c.height !== Math.round(r.height * dpr)) {
         c.width = Math.max(1, Math.round(r.width * dpr)); c.height = Math.max(1, Math.round(r.height * dpr));
       }
-      const pad = this.pad * dpr;
+      const pad = (Math.min(window.innerWidth, window.innerHeight) < 600 ? 6 : this.pad) * dpr; // Handy: Platz nicht verschenken
       this.scale = Math.max(0.05, Math.min((c.width - 2 * pad) / W, (c.height - 2 * pad) / H));
       this.ox = (c.width - W * this.scale) / 2;
       this.oy = (c.height - H * this.scale) / 2;
@@ -1104,6 +1107,7 @@
       canvas.addEventListener('pointerdown', (e) => this.onDown(e));
       window.addEventListener('pointermove', (e) => { if (this.dragging) this.cur = { x: e.clientX, y: e.clientY }; });
       window.addEventListener('pointerup', (e) => this.onUp(e));
+      window.addEventListener('pointercancel', (e) => { if (this.dragging && e.pointerId === this.pid) this.cancel(); });
       canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); this.cancel(); });
       window.addEventListener('keydown', (e) => this.onKey(e));
     }
@@ -1114,13 +1118,15 @@
       this.mouse = w;
     }
     onDown(e) {
+      if (this.dragging && e.pointerId !== this.pid) { this.cancel(); return; } // zweiter Finger = abbrechen
       if (e.button !== 0 || !this.enabled) return;
+      this.pid = e.pointerId;
       this.onMove(e);
       this.dragging = true; this.angleOff = 0; this.power = 0;
       this.anchor = { x: e.clientX, y: e.clientY }; this.cur = { ...this.anchor };
       this.dragAngle = this.angle;
     }
-    onUp(e) { if (e.button === 0 && this.dragging) this.release(); }
+    onUp(e) { if (e.button === 0 && this.dragging && e.pointerId === this.pid) this.release(); }
     onKey(e) {
       if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
       if (e.code === 'Space') {
@@ -1598,5 +1604,5 @@
 
 
 
-  window.Skill = { PERF, setLowFx, PerfMonitor, NEON, PUCK_COL, PUCK_NAME, FIELD_COL, FIELD_NAME, GADGET_COL, GADGET_NAME, GADGET_ICON, drawGadgets, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, BlastAnim, FX, SFX, animFx, roundRect, powerColor };
+  window.Skill = { TOUCH, PERF, setLowFx, PerfMonitor, NEON, PUCK_COL, PUCK_NAME, FIELD_COL, FIELD_NAME, GADGET_COL, GADGET_NAME, GADGET_ICON, drawGadgets, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, BlastAnim, FX, SFX, animFx, roundRect, powerColor };
 })();
