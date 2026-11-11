@@ -1350,6 +1350,10 @@
       const sp = a.speed;
       if (a.inZone('sand') && sp > 30 && Math.random() < 0.6) fx.spark(a.s.x, a.s.y, NEON.sand, 1, 60, { life: 0.5, kind: 'smoke', drag: 4, size: 2 });
       if (a.inZone('boost')) fx.spark(a.s.x, a.s.y, NEON.boost, 2, 200, { angle: Math.atan2(a.s.vy, a.s.vx) + Math.PI, spread: 0.8, life: 0.35 });
+      if ((a.s.waterWalk || a.s.ghost) && a.inZone('water') && sp > 20) { // gleitet übers Wasser: Gischt + Wellenringe
+        fx.spark(a.s.x, a.s.y, '#8fd0ff', 3, 160, { angle: Math.atan2(a.s.vy, a.s.vx) + Math.PI, spread: 1.6, life: 0.45, drag: 3 });
+        if (Math.random() < 0.15) fx.ring(a.s.x, a.s.y, NEON.water, 26, 0.6, 2);
+      }
       if (a.inZone('ice') && Math.random() < 0.3) fx.spark(a.s.x, a.s.y, NEON.ice, 1, 40, { life: 0.5, kind: 'dot' });
       if (sp > 900 && Math.random() < 0.7) fx.spark(a.s.x, a.s.y, color, 1, 80, { angle: Math.atan2(a.s.vy, a.s.vx) + Math.PI, spread: 0.6, life: 0.3 });
       if (a.steering && Math.random() < 0.5) { const p = a.pos, sl = a.mode === 'sling'; fx.spark(p.x, p.y, Math.random() < 0.5 ? (sl ? '#00eaff' : '#ff2e88') : (sl ? '#3dff7a' : '#b45cff'), 1, 90, { life: 0.7, kind: 'dot' }); }

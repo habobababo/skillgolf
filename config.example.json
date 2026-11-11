@@ -135,7 +135,8 @@
     "steerAccel": 2600,
     "eat": true,
     "grow": 2.5,
-    "maxScale": 3
+    "maxScale": 3,
+    "waterWalk": true
   },
   "sling": {
     "launchFactor": 1,

@@ -98,6 +98,7 @@
       steerAccel: 2600,    // Steuer-Beschleunigung (px/s²)
       pullAccel: 7000,     // linke Maustaste gedrückt: Ball wird kräftig zum Zeiger gezogen (px/s²)
       pullDamp: 3.5,       // Dämpfung dabei, damit er am Zeiger nicht vorbeischießt
+      waterWalk: true,     // gleitet über Wasser (bleibt er darauf liegen, zählt es als Wasser)
       eat: true,           // frisst alles auf seinem Weg (Pucks, Gegnerbälle, Wände, Blöcke, Bumper …) und wächst
       grow: 2.5,           // Radius-Zuwachs pro Bissen (px)
       maxScale: 3,         // höchstens so viel größer als normal
@@ -199,7 +200,7 @@
     c.ultimate.slowmo = lim(c.ultimate.slowmo, 0.05, 1);
     c.ultimate.launchFactor = lim(c.ultimate.launchFactor, 0.05, 3);
     c.ultimate.pullAccel = lim(c.ultimate.pullAccel, 0, 50000); c.ultimate.pullDamp = lim(c.ultimate.pullDamp, 0, 50);
-    c.ultimate.eat = c.ultimate.eat !== false; c.ultimate.grow = lim(c.ultimate.grow, 0, 50); c.ultimate.maxScale = lim(c.ultimate.maxScale, 1, 10);
+    c.ultimate.eat = c.ultimate.eat !== false; c.ultimate.waterWalk = c.ultimate.waterWalk !== false; c.ultimate.grow = lim(c.ultimate.grow, 0, 50); c.ultimate.maxScale = lim(c.ultimate.maxScale, 1, 10);
     c.sling.launchFactor = lim(c.sling.launchFactor, 0.05, 3);
     c.sling.slowmo = lim(c.sling.slowmo, 0.05, 1);
     c.sling.steerTime = lim(c.sling.steerTime, 0, 20);
@@ -354,6 +355,7 @@
       glass: {},           // zerstörte Objekte (zerbrochenes Glas, vom Ultimate gefressen): Objekt-Index -> true
       br: K.ballRadius,    // aktueller Ballradius (der Ultimate-Ball wächst beim Fressen)
       eat: !!opts.kick && K.ultimate.eat,
+      waterWalk: !!opts.kick && K.ultimate.waterWalk, // Ultimate gleitet über Wasser
       noArm: !!opts.noArm, // erster Schlag: Bomben werden noch nicht scharf
       ghost: !!opts.ghost, // Ghost-Gadget: durch Pucks/Bälle, keine Effekte
       gadgets: (opts.gadgets || []).map((g) => ({ id: g.id, type: g.type, x: g.x, y: g.y })),
@@ -532,13 +534,13 @@
   function inRect(z, x, y) { return x >= z.x1 && x <= z.x2 && y >= z.y1 && y <= z.y2; }
 
   /** Kräfte + Reibung für einen Körper; gibt false zurück, wenn er im Wasser landet */
-  function applyForces(cm, b, fric, extraAx, extraAy, ghost) {
+  function applyForces(cm, b, fric, extraAx, extraAy, ghost, waterWalk) {
     const SURF = K.surfaces;
     let ax = extraAx, ay = extraAy, surf = SURF.grass;
     for (let i = 0; !ghost && i < cm.zones.length; i++) { // Geist: kein Wasser, Sand, Eis, Hang, Boost
       const z = cm.zones[i];
       if (!inRect(z, b.x, b.y)) continue;
-      if (z.kind === 'water') return false;
+      if (z.kind === 'water') { if (waterWalk) continue; return false; }
       else if (z.kind === 'sand') surf = SURF.sand;
       else if (z.kind === 'ice') surf = SURF.ice;
       else { ax += z.fx; ay += z.fy; }
@@ -650,7 +652,7 @@
           const mf = magForce(s, mx, my, md, MR, MS, s.br + q.r); ex += mf[0]; ey += mf[1];
         }
       }
-      if (!applyForces(cm, s, 1, ex, ey, s.ghost)) { s.done = true; s.result = 'water'; }
+      if (!applyForces(cm, s, 1, ex, ey, s.ghost, s.waterWalk)) { s.done = true; s.result = 'water'; }
       else maxSp = s._sp;
     }
     // --- Pucks: Kräfte
@@ -755,6 +757,11 @@
       if (!s.done) { s.done = true; s.result = 'rest'; s.vx = 0; s.vy = 0; }
       for (const q of s.pucks) { q.vx = 0; q.vy = 0; }
       moving = false;
+    }
+    // Über Wasser gleiten ist erlaubt (Ultimate, Ghost) – darauf liegen bleiben nicht: dann zählt es als Wasser
+    if (s.done && s.result === 'rest' && (s.waterWalk || s.ghost) && !s.wChecked) {
+      s.wChecked = true;
+      for (let i = 0; i < cm.zones.length; i++) { const z = cm.zones[i]; if (z.kind === 'water' && inRect(z, s.x, s.y)) { s.result = 'water'; break; } }
     }
     s.allDone = s.done && !moving;
   }
