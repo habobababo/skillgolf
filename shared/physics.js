@@ -68,7 +68,16 @@
       medium: { mass: 2.5, radius: 13, share: 0.35 },
       heavy: { mass: 14, radius: 16, share: 0.25 },
       fieldCount: 1,
-      bombs: { count: 2, fuse: 5, radius: 280, force: 2600 }, // Bomben-Pucks: scharf bei Berührung, Countdown (s) läuft erst nach dem Zug       // so viele Pucks pro Bahn bekommen ein Feld (zufällig Gravitation oder Abstoßung)
+      bombs: {             // Bomben: scharf bei Berührung, Countdown (s) läuft erst nach dem Zug
+        count: 3,          // Bomben pro Bahn (zusätzlich zu den Pucks)
+        fromHole: 1,       // erst ab dieser Bahn (1 = immer)
+        armFromShot: 2,    // Bomben werden erst ab diesem Schlag des Spielers scharf (davor normale Pucks)
+        fuse: 5,
+        bigShare: 0.5,     // Anteil großer Bomben (Rest klein)
+        big: { radius: 20, mass: 3, blastRadius: 340, force: 3000, debris: 5 },
+        small: { radius: 10, mass: 0.8, blastRadius: 190, force: 1900, debris: 3 },
+        fieldChance: 0.01, // Chance, dass ein freigesprengter Puck Gravitation/Abstoßung hat
+      },       // so viele Pucks pro Bahn bekommen ein Feld (zufällig Gravitation oder Abstoßung)
       attract: { radius: 230, strength: 900 },   // Gravitation: zieht den Ball an
       repel: { radius: 210, strength: 1100 },    // Abstoßung: drückt den Ball weg
     },
@@ -92,7 +101,7 @@
       steerAccel: 1800,
     },
     turn: {
-      timeLimit: 45,       // Sekunden pro Zug, danach ist der nächste dran (0 = unbegrenzt)
+      timeLimit: 23,       // Sekunden pro Zug, danach ist der nächste dran (0 = unbegrenzt)
     },
     points: {              // Punktesystem: mehr Punkte = besser
       holeInOne: 10, eagle: 7, birdie: 5, par: 3, bogey: 2, worse: 1, miss: 0,
@@ -160,8 +169,13 @@
     for (const k of ['light', 'medium', 'heavy']) { c.pucks[k].mass = lim(c.pucks[k].mass, 0.05, 1000); c.pucks[k].radius = lim(c.pucks[k].radius, 4, 60); }
     c.pucks.ballMass = lim(c.pucks.ballMass, 0.05, 1000);
     c.pucks.fieldCount = Math.round(lim(c.pucks.fieldCount, 0, 30));
-    c.pucks.bombs.count = Math.round(lim(c.pucks.bombs.count, 0, 30)); c.pucks.bombs.fuse = lim(c.pucks.bombs.fuse, 0.5, 120);
-    c.pucks.bombs.radius = lim(c.pucks.bombs.radius, 10, 3000); c.pucks.bombs.force = lim(c.pucks.bombs.force, 0, 30000);
+    { const B = c.pucks.bombs;
+      B.count = Math.round(lim(B.count, 0, 30)); B.fuse = lim(B.fuse, 0.5, 120); B.fromHole = Math.round(lim(B.fromHole, 1, 100)); B.armFromShot = Math.round(lim(B.armFromShot, 1, 20));
+      B.bigShare = lim(B.bigShare, 0, 1); B.fieldChance = lim(B.fieldChance, 0, 1);
+      for (const k of ['big', 'small']) {
+        const o = B[k]; o.radius = lim(o.radius, 4, 60); o.mass = lim(o.mass, 0.05, 100);
+        o.blastRadius = lim(o.blastRadius, 10, 3000); o.force = lim(o.force, 0, 30000); o.debris = Math.round(lim(o.debris, 0, 12));
+      } }
     for (const k of ['attract', 'repel']) { c.pucks[k].radius = lim(c.pucks[k].radius, 10, 3000); c.pucks[k].strength = lim(c.pucks[k].strength, 0, 20000); }
     c.gravityPuck.perHole = Math.round(lim(c.gravityPuck.perHole, 0, 10)); c.gravityPuck.speed = lim(c.gravityPuck.speed, 0.05, 3);
     c.glass.breakSpeed = lim(c.glass.breakSpeed, 0, 30000); c.glass.keep = lim(c.glass.keep, 0, 1); c.glass.bounce = lim(c.glass.bounce, 0, 2);
@@ -324,6 +338,7 @@
       glass: {},           // zerstörte Objekte (zerbrochenes Glas, vom Ultimate gefressen): Objekt-Index -> true
       br: K.ballRadius,    // aktueller Ballradius (der Ultimate-Ball wächst beim Fressen)
       eat: !!opts.kick && K.ultimate.eat,
+      noArm: !!opts.noArm, // erster Schlag: Bomben werden noch nicht scharf
     };
     if (opts.glass) for (const i of opts.glass) s.glass[i] = true;
     // liegende Gegnerbälle: bewegliche Körper (am Ende der Puck-Liste, pb = Spieler-ID)
@@ -334,7 +349,7 @@
   function clonePucks(p) {
     return p.map((q) => {
       const o = { x: q.x, y: q.y, vx: q.vx || 0, vy: q.vy || 0, r: q.r, m: q.m, c: q.c, f: q.f || null, alive: q.alive !== false };
-      if (q.bomb) { o.bomb = true; o.armed = !!q.armed; }
+      if (q.bomb) { o.bomb = true; o.armed = !!q.armed; o.bs = q.bs || 'big'; }
       if (q.pb != null) { o.pb = q.pb; o.ox = q.ox; o.oy = q.oy; }
       if (q.gp != null) o.gp = q.gp;
       return o;
@@ -348,7 +363,7 @@
       const o = { x: q.x, y: q.y, r: q.r, m: q.m, c: q.c, alive: q.alive };
       if (q.f) o.f = q.f;
       if (q.gp != null) o.gp = q.gp;
-      if (q.bomb) { o.bomb = true; o.armed = !!q.armed; }
+      if (q.bomb) { o.bomb = true; o.armed = !!q.armed; o.bs = q.bs || 'big'; }
       out.push(o);
     }
     return out;
@@ -364,7 +379,9 @@
   }
   function grow(s) { s.br = Math.min(K.ballRadius * K.ultimate.maxScale, s.br + K.ultimate.grow); }
   /** Bombe scharf machen (Berührung) */
-  function arm(s, q) { if (q.bomb && !q.armed && q.alive) { q.armed = true; s.pevents.push({ type: 'arm', x: q.x, y: q.y }); } }
+  /** darf ein Schlag mit dieser Nummer (1 = erster) Bomben scharf machen? */
+  function canArm(shotNo) { return shotNo >= K.pucks.bombs.armFromShot; }
+  function arm(s, q) { if (s.noArm) return; if (q.bomb && !q.armed && q.alive) { q.armed = true; s.pevents.push({ type: 'arm', x: q.x, y: q.y }); } }
   function touching(a, b, ra, rb) { const dx = b.x - a.x, dy = b.y - a.y, rr = ra + rb + 0.5; return dx * dx + dy * dy < rr * rr; }
 
   /** Ultimate: alle Pucks vom Ball wegschleudern (schwere weniger) */
@@ -732,39 +749,57 @@
    * Explosion einer Bombe (zwischen den Zügen). balls: [{id, x, y}] liegende Spielerbälle – sie fliegen mit.
    * Gibt einen Zustand zurück, der mit step() bis allDone weiterläuft (Server komplett, Client als Animation).
    */
+  /** Werte einer Bombe je nach Größe */
+  function bombCfg(q) { return K.pucks.bombs[q && q.bs === 'small' ? 'small' : 'big']; }
   function blastState(cm, pucks, balls, glass, idx) {
-    const B = K.pucks.bombs;
     const bodies = clonePucks(pucks);
     for (const b of balls || []) bodies.push({ x: b.x, y: b.y, vx: 0, vy: 0, r: K.ballRadius, m: K.pucks.ballMass, c: 'ball', f: null, alive: true, pb: b.id, ox: b.x, oy: b.y });
     const s = createState(-1e6, -1e6, 0, 0, [], { glass });
     s.pucks = bodies; s.done = true; s.result = 'rest';
     const q0 = bodies[idx];
     if (!q0 || !q0.alive) { s.allDone = true; return s; }
+    const B = bombCfg(q0);
     q0.alive = false;
-    s.pevents.push({ type: 'boom', x: q0.x, y: q0.y });
+    s.pevents.push({ type: 'boom', x: q0.x, y: q0.y, r: B.blastRadius, small: q0.bs === 'small' });
     for (const q of bodies) {
       if (!q.alive) continue;
       let dx = q.x - q0.x, dy = q.y - q0.y, d = Math.sqrt(dx * dx + dy * dy);
-      if (d >= B.radius) continue;
+      if (d >= B.blastRadius) continue;
       if (d < 1e-6) { dx = 1; dy = 0; d = 1; }
-      const f = B.force * (1 - d / B.radius) / Math.sqrt(q.m);
+      const f = B.force * (1 - d / B.blastRadius) / Math.sqrt(q.m);
       q.vx += dx / d * f; q.vy += dy / d * f;
       arm(s, q); // Kettenreaktion: andere Bomben im Radius werden scharf
     }
+    // aus der Bombe kommen neue Pucks zum Vorschein (deterministisch aus Position + Index)
+    const R = rng(((q0.x * 73856093) ^ (q0.y * 19349663) ^ (idx * 83492791)) >>> 0);
+    const PK = K.pucks, classes = ['light', 'medium', 'heavy'];
+    const shares = classes.map((c) => Math.max(0, PK[c].share)), tot = shares.reduce((a, b) => a + b, 0) || 1;
+    const debris = [], n = B.debris, a0 = R() * Math.PI * 2;
+    for (let k = 0; k < n; k++) {
+      let u = R() * tot, ci = 0;
+      while (ci < 2 && u > shares[ci]) { u -= shares[ci]; ci++; }
+      const c = classes[ci], r = PK[c].radius, a = a0 + k * (Math.PI * 2 / n), d = q0.r + r + 2, sp = 250 + R() * 450;
+      const q = { x: q0.x + dcos(a) * d, y: q0.y + dsin(a) * d, vx: dcos(a) * sp, vy: dsin(a) * sp, r, m: PK[c].mass, c, f: null, alive: true };
+      if (R() < K.pucks.bombs.fieldChance) q.f = R() < 0.5 ? 'attract' : 'repel';
+      collideStatic(cm, q, r, false, s);
+      debris.push(q);
+      s.pevents.push({ type: 'debris', x: q.x, y: q.y, c, f: q.f });
+    }
+    bodies.splice(pucks.length, 0, ...debris); // hinter die bisherigen Pucks, vor die Bälle
     return s;
   }
   /**
    * Gravitations-Puck abschießen: startet direkt vor dem Ball des Schützen (id) in Schussrichtung.
    * balls: alle liegenden Bälle inkl. Schütze. Läuft wie blastState mit step() bis allDone.
    */
-  function launchState(cm, pucks, balls, glass, id, angle, power) {
+  function launchState(cm, pucks, balls, glass, id, angle, power, noArm) {
     const bodies = clonePucks(pucks);
     let from = null;
     for (const b of balls || []) {
       bodies.push({ x: b.x, y: b.y, vx: 0, vy: 0, r: K.ballRadius, m: K.pucks.ballMass, c: 'ball', f: null, alive: true, pb: b.id, ox: b.x, oy: b.y });
       if (b.id === id) from = b;
     }
-    const s = createState(-1e6, -1e6, 0, 0, [], { glass });
+    const s = createState(-1e6, -1e6, 0, 0, [], { glass, noArm });
     s.pucks = bodies; s.done = true; s.result = 'rest';
     if (!from) { s.allDone = true; return s; }
     const md = K.pucks.medium, dx = dcos(angle), dy = dsin(angle), v = shotVelocity(angle, power);
@@ -777,8 +812,8 @@
     collideStatic(cm, q, r, false, s);
     return s;
   }
-  function launch(cm, pucks, balls, glass, id, angle, power) {
-    const s = launchState(cm, pucks, balls, glass, id, angle, power);
+  function launch(cm, pucks, balls, glass, id, angle, power, noArm) {
+    const s = launchState(cm, pucks, balls, glass, id, angle, power, noArm);
     while (!s.allDone && s.t < K.maxShotTime + 1) step(cm, s);
     return { pucks: exportPucks(s), balls: blastBalls(s), glass: exportGlass(s), time: s.t };
   }
@@ -805,7 +840,8 @@
     return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   }
   /** mindestens 10 Pucks zufällig, aber nicht in Hindernissen, Wasser, am Loch oder Abschlag */
-  function spawnPucks(cm, seed) {
+  /** holeIndex: 0-basiert; Bomben erst ab K.pucks.bombs.fromHole */
+  function spawnPucks(cm, seed, holeIndex) {
     const R = rng(seed), PK = K.pucks, out = [];
     const count = Math.max(10, Math.round(PK.count));
     const classes = ['light', 'medium', 'heavy'];
@@ -838,11 +874,23 @@
       const j = Math.floor(R() * cand.length), i = cand.splice(j, 1)[0];
       out[i].f = R() < 0.5 ? 'attract' : 'repel';
     }
-    // Bomben-Pucks (nur leichte/mittlere, nicht am Abschlag/Loch, nicht die Feld-Pucks)
-    const bc = cand.filter((i) => out[i].c !== 'heavy');
-    for (let k = 0; k < PK.bombs.count && bc.length; k++) {
-      const j = Math.floor(R() * bc.length), i = bc.splice(j, 1)[0];
-      out[i].bomb = true; out[i].armed = false;
+    // Bomben (groß/klein) zusätzlich, erst ab Bahn fromHole, nicht nahe Abschlag/Loch
+    const BB = PK.bombs;
+    if ((holeIndex == null ? Infinity : holeIndex + 1) >= BB.fromHole) {
+      let placed = 0;
+      for (let tries = 0; placed < BB.count && tries < 4000; tries++) {
+        const bs = R() < BB.bigShare ? 'big' : 'small', bc = BB[bs], r = bc.radius;
+        const x = r + 10 + R() * (cm.W - 2 * r - 20), y = r + 10 + R() * (cm.H - 2 * r - 20);
+        if ((x - cm.hole.x) ** 2 + (y - cm.hole.y) ** 2 < 220 * 220 || (x - cm.start.x) ** 2 + (y - cm.start.y) ** 2 < 220 * 220) continue;
+        { const g = holeGravity(cm, x, y, puckPull({ m: bc.mass })); if (g && g[0] * g[0] + g[1] * g[1] > (K.surfaces.grass.decel * PK.friction * 0.8) ** 2) continue; }
+        if (cm.zones.some((z) => z.kind === 'water' && x > z.x1 - r && x < z.x2 + r && y > z.y1 - r && y < z.y2 + r)) continue;
+        if (out.some((q) => (q.x - x) ** 2 + (q.y - y) ** 2 < (q.r + r + 10) ** 2)) continue;
+        const t = { x, y, vx: 0, vy: 0, hitV: 0 };
+        collideStatic(cm, t, r + 4, false);
+        if (t.x !== x || t.y !== y) continue;
+        out.push({ x: Math.round(x), y: Math.round(y), r, m: bc.mass, c: 'medium', bomb: true, bs, armed: false, alive: true });
+        placed++;
+      }
     }
     return out;
   }
@@ -888,7 +936,7 @@
   const api = {
     DT, DEFAULTS, DEFAULT_CONFIG,
     configure, compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap, spawnPucks, exportPucks, exportGlass, modeCfg, shotMode,
-    holePoints, shotBonus, dsin, dcos, blastState, blast, blastBalls, launchState, launch, ballBodies,
+    holePoints, shotBonus, dsin, dcos, blastState, blast, blastBalls, launchState, launch, ballBodies, bombCfg, canArm,
   };
   // Live-Werte (ändern sich mit configure)
   Object.defineProperties(api, {

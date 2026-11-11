@@ -399,7 +399,7 @@
   const ctrl = new S.ShotController(canvas, view, {
     fx, sfx, color: () => '#ffe03a', hoverPreview: true,
     canShoot: () => !!testing && !testing.anim && !testing.blast && !testing.done,
-    getPucks: () => (testing ? { list: testing.pucks, ver: testing.pver, glass: testing.glass } : null),
+    getPucks: () => (testing ? { list: testing.pucks, ver: testing.pver, glass: testing.glass, noArm: !P.canArm(testing.shots + 1) } : null),
     shotMode: () => testMode(),
     onShoot: (angle, power) => {
       const mode = testMode();
@@ -407,7 +407,7 @@
       if (mode === 'ult') testing.ultUsed = true;
       testing.shots++;
       testing.from = { ...testing.ball };
-      testing.anim = new S.BallAnim(testing.cm, testing.ball, v.vx, v.vy, null, null, { pucks: testing.pucks, glass: testing.glass, mode, local: true });
+      testing.anim = new S.BallAnim(testing.cm, testing.ball, v.vx, v.vy, null, null, { pucks: testing.pucks, glass: testing.glass, noArm: !P.canArm(testing.shots), mode, local: true });
     },
   });
   function testMode() { return testing && !testing.done ? P.shotMode(testing.shots + 1, testing.ultUsed) : null; }
@@ -537,7 +537,7 @@
       updateTest(dt);
       if (testing) {
         const fsec = {}; for (const i in testing.fuse) fsec[i] = Math.max(0, testing.fuse[i] / 1000);
-        S.drawPucks(ctx, testing.blast ? testing.blast.pucks : testing.anim ? testing.anim.pucks : testing.pucks, t, fsec);
+        S.drawPucks(ctx, testing.blast ? testing.blast.pucks : testing.anim ? testing.anim.pucks : testing.pucks, t, fsec, !testing.anim && !P.canArm(testing.shots + 1));
         if (testing.anim) S.drawTrail(ctx, testing.anim.trail, '#ffe03a');
         else if (testing.lastTrail) { testing.trailFade += dt; S.drawTrail(ctx, testing.lastTrail, '#ffe03a', Math.max(0, 1 - testing.trailFade / 4)); }
         if (!(testing.done && !testing.anim && Math.hypot(testing.ball.x - testing.cm.hole.x, testing.ball.y - testing.cm.hole.y) < 1)) S.drawBall(ctx, testing.ball.x, testing.ball.y, '#ffe03a', null, 1, null, 0, testing.anim && testing.anim.s.br ? testing.anim.s.br / P.BALL_R : 1);

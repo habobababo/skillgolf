@@ -11,7 +11,8 @@ Multiplayer-Minigolf im Browser mit eigenem Map-Editor.
 - **Gummibänder** (orange, mit Pfosten): Der Ball prallt schneller zurück, als er kam, und das Band schwingt nach.
 - **Glaswände**: Ein schneller Ball zerbricht die Scheibe und verliert dabei knapp die Hälfte seines Tempos. Ist er zu langsam, prallt er ab. Kaputtes Glas bleibt für alle bis zum Ende der Bahn weg.
 - **Gravity-Puck (Taste `F`)**: Einmal pro Bahn kannst du in deinem Zug statt des Balls einen lila Gravitations-Puck abschießen, er startet direkt vor deinem Ball. Das zählt **nicht** als Schlag. Danach schlägst du ganz normal und kannst den Puck so nutzen, um deinen Schuss umzulenken. Ein kleiner Hinweis im HUD erinnert daran, auf dem Handy kann man ihn antippen. Beim Ziehen zeigt eine lila Vorschau, wo der Puck liegen bleibt.
-- **Bomben-Pucks** (schwarz mit Zündschnur, 2 pro Bahn): Werden sie berührt, vom Ball oder von einem anderen Puck, sind sie scharf und zeigen einen Countdown. Der läuft aber erst los, wenn der Zug vorbei ist, und nur während jemand zielt. Rollt ein Ball, steht er still, deshalb bleibt die Vorschau exakt. Bei 0 explodiert die Bombe und schleudert Pucks und liegende Bälle weg, andere Bomben im Radius werden mit scharf. Landet ein Ball dabei im Wasser oder im Loch, bleibt er, wo er lag. Danach bekommt der Spieler am Zug neue Zeit.
+- **Bomben** (schwarz mit Zündschnur, 3 pro Bahn, groß oder klein): Ab deinem **2. Schlag** auf einer Bahn macht jede Berührung sie scharf, vom Ball oder von einem anderen Puck. Beim 1. Schlag verhalten sie sich wie normale Pucks und zeigen „🔒 ab 2. Schlag“. Scharfe Bomben zeigen einen Countdown, der erst nach dem Zug losläuft und nur, während jemand zielt. Bei 0 explodieren sie: Große Bomben knallen stärker und weiter als kleine. Pucks und liegende Bälle fliegen weg, andere Bomben im Radius werden scharf. Dabei kommen **neue Pucks zum Vorschein** (große Bombe 5, kleine 3), jeder davon mit 1 % Wahrscheinlichkeit ein Gravitations- oder Abstoß-Puck. Landet ein Ball im Wasser oder im Loch, bleibt er, wo er lag.
+- **Zugzeit 23 Sekunden**: Ein großer Countdown über dem Spielfeld zeigt die Restzeit. Die Zahl wird immer größer, je weniger Zeit bleibt, und färbt sich in den letzten 5 Sekunden rot und tickt.
 - **Feld-Puck**: Auf jeder Bahn hat genau ein Puck ein Feld, zufällig eins von beiden: lila zieht den rollenden Ball an (Gravitation), orange drückt ihn weg (Abstoßung). Die Ringe laufen bei Gravitation nach innen und bei Abstoßung nach außen.
 - **Schwarzes Loch**: Das Loch zieht in seinem Umkreis alles an, also Ball, Pucks und sogar die Funken. Schnelle Bälle werden in einer Kurve abgelenkt, langsame fallen hinein. Pucks, die hineingeraten, werden verschluckt. Die Vorschau zeigt auch das exakt.
 - **Punktesystem (mehr ist besser)**: Pro Bahn gibt es Punkte nach Schlägen im Vergleich zum Par. Hole-in-One 10, Eagle 7, Birdie 5, Par 3, Bogey 2, schlechter 1, nicht eingelocht 0. Dazu kommen Boni: +1 pro Puck, den dein Schlag versenkt (im Wasser oder im schwarzen Loch), bei schweren Pucks +2, höchstens 5 pro Bahn. Ein **Trickshot** bringt +2, wenn der einlochende Schlag mindestens 3 Abpraller hatte. Die Rangliste sortiert nach Punkten, bei Gleichstand nach weniger Schlägen.
@@ -81,8 +82,11 @@ nano config.json
 | `bounce.bumperKick` | 260 | Zusätzlicher Stoß der Bumper |
 | `bounce.band` / `bounce.bandKick` | 1.3 / 140 | Rückprall und Zusatz-Schwung der Gummibänder |
 | `glass.breakSpeed` / `glass.keep` / `glass.bounce` | 1100 / 0.55 / 0.6 | Aufprall-Tempo zum Zerbrechen, verbleibender Tempo-Anteil, Rückprall wenn es hält |
-| `pucks.bombs.count` / `pucks.bombs.fuse` | 2 / 5 | Bomben pro Bahn und Countdown in Sekunden |
-| `pucks.bombs.radius` / `pucks.bombs.force` | 280 / 2600 | Explosionsradius und Wucht |
+| `pucks.bombs.count` / `pucks.bombs.fuse` | 3 / 5 | Bomben pro Bahn und Countdown in Sekunden |
+| `pucks.bombs.armFromShot` / `pucks.bombs.fromHole` | 2 / 1 | Ab welchem Schlag Bomben scharf werden; ab welcher Bahn es Bomben gibt |
+| `pucks.bombs.bigShare` | 0.5 | Anteil großer Bomben |
+| `pucks.bombs.big` / `pucks.bombs.small` | r 20 / 10, Explosion 340 / 190 px, Wucht 3000 / 1900, 5 / 3 neue Pucks | Größe, Explosionsradius, Wucht und freigesprengte Pucks je Bombengröße |
+| `pucks.bombs.fieldChance` | 0.01 | Chance, dass ein freigesprengter Puck Gravitation/Abstoßung hat |
 | `gravityPuck.perHole` / `gravityPuck.speed` | 1 / 1 | Gravity-Pucks pro Spieler und Bahn, Abschuss-Tempo relativ zum Ball |
 | `pucks.fieldCount` | 1 | Pucks mit Feld pro Bahn (Art zufällig) |
 | `pucks.attract` / `pucks.repel` | `radius` 230/210, `strength` 900/1100 | Reichweite und Stärke von Gravitation bzw. Abstoßung |
@@ -102,7 +106,7 @@ nano config.json
 | `sling.shots` | [2, 4] | Schlagnummern, die Sling-Schläge sind (`[]` = aus) |
 | `sling.launchFactor` / `sling.slowmo` | 1 / 0.6 | Startgeschwindigkeit und Zeitlupe beim Sling |
 | `sling.steerTime` / `sling.steerAccel` | 2.5 / 1800 | Lenkdauer und Lenkstärke beim Sling |
-| `turn.timeLimit` | 45 | Sekunden pro Zug, danach ist der Nächste dran (0 = unbegrenzt) |
+| `turn.timeLimit` | 23 | Sekunden pro Zug, danach ist der Nächste dran (0 = unbegrenzt) |
 | `magnet.usesPerHole` | 2 | Magnet-Ladungen pro Spieler und Bahn (0 = aus) |
 | `magnet.strength` / `magnet.radius` | 3200 / 420 | Anziehung direkt am Magneten (nimmt nach außen ab) und Reichweite |
 | `fps` | 60 | Bildrate im Browser (0 = unbegrenzt) |

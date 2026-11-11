@@ -87,10 +87,26 @@
       "strength": 1100
     },
     "bombs": {
-      "count": 2,
+      "count": 3,
+      "fromHole": 1,
+      "armFromShot": 2,
       "fuse": 5,
-      "radius": 280,
-      "force": 2600
+      "bigShare": 0.5,
+      "big": {
+        "radius": 20,
+        "mass": 3,
+        "blastRadius": 340,
+        "force": 3000,
+        "debris": 5
+      },
+      "small": {
+        "radius": 10,
+        "mass": 0.8,
+        "blastRadius": 190,
+        "force": 1900,
+        "debris": 3
+      },
+      "fieldChance": 0.01
     }
   },
   "ultimate": {
@@ -116,7 +132,7 @@
     "steerAccel": 1800
   },
   "turn": {
-    "timeLimit": 45
+    "timeLimit": 23
   },
   "magnet": {
     "usesPerHole": 2,

@@ -159,7 +159,7 @@ function startHole(room) {
   if (!map) { broadcast(room, { type: 'toast', text: `Map ${entry.name} fehlt – übersprungen` }); return nextHole(room); }
   room.map = map;
   room.cm = P.compile(map);
-  room.pucks = P.spawnPucks(room.cm, (Math.random() * 2 ** 31) | 0);
+  room.pucks = P.spawnPucks(room.cm, (Math.random() * 2 ** 31) | 0, room.holeIndex);
   room.glass = []; // zerbrochene Glaswände (Objekt-Indizes) – gilt für alle bis zum Bahnende
   stopFuses(room); room.fuse = {}; room.blastUntil = 0;
   endUltimate(room, true);
@@ -248,13 +248,14 @@ function handleGPuck(room, p, msg) {
   pauseFuses(room); clearTimeout(t.timer);
   const balls = room.players.filter((q) => q.ball && !q.sunk).map((q) => ({ id: q.id, x: q.ball.x, y: q.ball.y }));
   const pucks0 = room.pucks, glass0 = room.glass || [];
-  const r = P.launch(room.cm, pucks0, balls, glass0, p.id, angle, power);
+  const noArm = !P.canArm(p.shots + 1); // Abschuss vor dem 1. Schlag: Bomben bleiben ruhig
+  const r = P.launch(room.cm, pucks0, balls, glass0, p.id, angle, power, noArm);
   room.pucks = r.pucks; room.glass = r.glass;
   for (const b of r.balls) { const q = room.players.find((x) => x.id === b.id); if (q) q.ball = { x: b.x, y: b.y }; }
   noteArmed(room);
   t.phase = 'blast'; t.deadline = 0;
   const ms = r.time * 1000 + 400;
-  broadcast(room, { type: 'gpuck', id: p.id, angle, power, balls0: balls, pucks0, glass0, pucks: r.pucks, balls: r.balls, glass: r.glass });
+  broadcast(room, { type: 'gpuck', id: p.id, angle, power, noArm, balls0: balls, pucks0, glass0, pucks: r.pucks, balls: r.balls, glass: r.glass });
   syncRoom(room);
   setTimeout(() => {
     if (room.turn !== t || room.phase !== 'playing') return;
@@ -458,6 +459,7 @@ function handleShot(room, p, msg) {
   const cmShot = P.withBalls(room.cm, [], from.x, from.y, magnets, magPucks, magBalls);
   const pucks0 = room.pucks, glass0 = room.glass || [];
   p.shots++;
+  const noArm = !P.canArm(p.shots); // erst ab dem 2. Schlag des Spielers werden Bomben scharf
   turnFlight(room);
   const seq = t.seq;
 
@@ -465,15 +467,15 @@ function handleShot(room, p, msg) {
     // gesteuerter Schlag (Ultimate/Sling): Ergebnis steht erst fest, wenn die Steuerung vorbei ist
     if (mode === 'ult') p.ultUsed = true;
     const U = P.modeCfg(mode);
-    room.ult = { pid: p.id, mode, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, glass0, balls0, inputs: [], max: Math.round(U.steerTime / P.DT) * 2, accel: U.steerAccel };
+    room.ult = { pid: p.id, mode, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, glass0, balls0, noArm, inputs: [], max: Math.round(U.steerTime / P.DT) * 2, accel: U.steerAccel };
     room.ult.timer = setTimeout(() => finishUltimate(room), (U.steerTime / U.slowmo + 15) * 1000);
-    broadcast(room, { type: 'shot', seq, id: p.id, mode, ult: mode === 'ult', from, others: [], magnets, magPucks, magBalls, balls0, vx: v.vx, vy: v.vy, pucks0, glass0, shots: p.shots });
+    broadcast(room, { type: 'shot', seq, id: p.id, mode, ult: mode === 'ult', from, others: [], magnets, magPucks, magBalls, balls0, noArm, vx: v.vx, vy: v.vy, pucks0, glass0, shots: p.shots });
     return;
   }
 
-  const r = P.simulate(cmShot, from.x, from.y, v.vx, v.vy, { pucks: pucks0, glass: glass0, balls: balls0 });
+  const r = P.simulate(cmShot, from.x, from.y, v.vx, v.vy, { pucks: pucks0, glass: glass0, balls: balls0, noArm });
   const gain = applyResult(room, p, from, r, r.time * 1000, pucks0);
-  broadcast(room, { type: 'shot', seq, id: p.id, from, others: [], magnets, magPucks, magBalls, balls0, balls: r.balls, vx: v.vx, vy: v.vy, pucks0, glass0, glass: r.glass, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
+  broadcast(room, { type: 'shot', seq, id: p.id, from, others: [], magnets, magPucks, magBalls, balls0, noArm, balls: r.balls, vx: v.vx, vy: v.vy, pucks0, glass0, glass: r.glass, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
   turnResolved(room, r.time * 1000);
 }
 
@@ -499,7 +501,7 @@ function finishUltimate(room) {
   clearTimeout(u.timer);
   room.ult = null;
   const p = room.players.find((q) => q.id === u.pid);
-  const r = P.simulate(u.cm, u.from.x, u.from.y, u.vx, u.vy, { pucks: u.pucks0, glass: u.glass0, balls: u.balls0, kick: u.mode === 'ult', inputs: u.inputs });
+  const r = P.simulate(u.cm, u.from.x, u.from.y, u.vx, u.vy, { pucks: u.pucks0, glass: u.glass0, balls: u.balls0, noArm: u.noArm, kick: u.mode === 'ult', inputs: u.inputs });
   const seq = room.turn ? room.turn.seq : 0;
   if (!p) { room.pucks = r.pucks; room.glass = r.glass; applyBalls(room, r.balls); noteArmed(room); broadcast(room, { type: 'shotEnd', seq, id: u.pid, pucks: r.pucks, glass: r.glass, balls: r.balls, gone: true }); turnResolved(room, 0); return; }
   const steerT = (u.inputs.length / 2) * P.DT;

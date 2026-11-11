@@ -156,3 +156,11 @@ table.score .ptot { color: #ffe03a; text-shadow: 0 0 8px rgba(255,224,58,.6); fo
 #gpHint.on { color: #fff; background: rgba(195,107,255,.35); box-shadow: 0 0 14px rgba(195,107,255,.8); animation: magpulse .6s ease-in-out infinite alternate; }
 @media (max-width: 800px) { #gpHint { font-size: 10px; } }
 #btnMagnet small.hint { display: block; font-size: 10px; opacity: .7; letter-spacing: 1px; }
+/* großer Zug-Countdown: je weniger Zeit, desto größer */
+#bigTimer { position: fixed; left: 50%; top: 92px; transform: translateX(-50%); pointer-events: none; z-index: 5;
+  font: 900 40px/1 system-ui, sans-serif; color: #fff; letter-spacing: -2px; font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 12px var(--tc, #00eaff), 0 0 36px var(--tc, #00eaff); opacity: .85; transition: color .3s; }
+#bigTimer.pop { animation: tpop .35s ease-out; }
+@keyframes tpop { 0% { transform: translateX(-50%) scale(1.35); } 100% { transform: translateX(-50%) scale(1); } }
+#bigTimer small { display: block; font-size: 12px; letter-spacing: 3px; text-align: center; opacity: .8; font-weight: 700; margin-top: 2px; }
+@media (max-width: 800px) { #bigTimer { top: 70px; } }

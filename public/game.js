@@ -114,7 +114,7 @@
     const mode = m.mode || (m.ult ? 'ult' : null);
     const ult = !!mode;
     const a = new S.BallAnim(P.withBalls(cm, m.others || [], m.from.x, m.from.y, m.magnets, m.magPucks, m.magBalls), m.from, m.vx, m.vy, m.end, m.result,
-      { pucks: m.pucks0, glass: m.glass0, balls: m.balls0, mode, local: ult && m.id === myId });
+      { pucks: m.pucks0, glass: m.glass0, balls: m.balls0, noArm: m.noArm, mode, local: ult && m.id === myId });
     a.player = p; a.final = ult ? null : m; a.born = performance.now(); a.seq = m.seq;
     anims.set(m.id, a);
     p.shots = m.shots;
@@ -232,7 +232,7 @@
   function onGPuck(m) {
     if (!cm) return;
     if (m.id === myId) { awaiting = false; gMode = false; }
-    blastAnim = new S.BlastAnim(cm, P.launchState(cm, m.pucks0, m.balls0, m.glass0, m.id, m.angle, m.power));
+    blastAnim = new S.BlastAnim(cm, P.launchState(cm, m.pucks0, m.balls0, m.glass0, m.id, m.angle, m.power, m.noArm));
     blastAnim.final = m; blastAnim.gpuck = true;
     const p = room && room.players.find((x) => x.id === m.id);
     if (p) { p.gpuckLeft = Math.max(0, (p.gpuckLeft || 0) - 1); if (m.id !== myId) toast(`🪐 ${p.name} schießt einen Gravity-Puck`); }
@@ -262,7 +262,7 @@
     const key = mine.ball.x + ',' + mine.ball.y + ',' + ctrl.angle + ',' + ctrl.power + ',' + pucksVer;
     if (gPrev && gPrev.key === key) return gPrev;
     const balls = room.players.filter((q) => q.ball && !q.sunk).map((q) => ({ id: q.id, x: q.ball.x, y: q.ball.y }));
-    const st = P.launchState(cm, pucks, balls, glass, myId, ctrl.angle, ctrl.power);
+    const st = P.launchState(cm, pucks, balls, glass, myId, ctrl.angle, ctrl.power, !P.canArm(mine.shots + 1));
     const pts = [], i = st.launched;
     let n = 0;
     while (!st.allDone && st.t < 20) { const q = st.pucks[i]; if (n++ % 2 === 0) pts.push(q.x, q.y); if (!q.alive) break; P.step(cm, st); }
@@ -296,6 +296,27 @@
     }
     renderBoard(); renderHud();
   }
+  /** großer Countdown über dem Spielfeld: wächst, je weniger Zeit bleibt */
+  let bigLast = null;
+  function updateBigTimer(left) {
+    const el = $('bigTimer');
+    if (left == null || !turn || turn.phase !== 'aim') { if (bigLast !== null) { el.classList.add('hidden'); bigLast = null; } return; }
+    if (left === bigLast) return;
+    bigLast = left;
+    const T = P.config.turn.timeLimit || 23, frac = Math.max(0, Math.min(1, left / T));
+    const mine = myTurn(), tp = room && room.players.find((x) => x.id === turn.id);
+    const size = Math.round(40 + Math.pow(1 - frac, 1.6) * (window.innerHeight * 0.32)); // 40px … ~ein Drittel der Höhe
+    const col = left <= 5 ? '#ff3860' : frac < 0.5 ? '#ffe03a' : (tp ? tp.color : '#00eaff');
+    el.style.fontSize = size + 'px';
+    const cr = canvas.getBoundingClientRect(); el.style.left = (cr.left + cr.width / 2) + 'px'; // mittig über dem Spielfeld
+    el.style.setProperty('--tc', col);
+    el.style.color = left <= 5 ? '#ffd0d8' : '#fff';
+    el.style.opacity = mine ? 0.9 : 0.55;
+    el.innerHTML = `${left}<small>${mine ? 'DEIN ZUG' : tp ? esc(tp.name).toUpperCase() : ''}</small>`;
+    el.classList.remove('hidden', 'pop'); void el.offsetWidth; el.classList.add('pop');
+    if (mine && left <= 5 && left > 0) sfx.fuseTick(left <= 3);
+  }
+
   /** Restsekunden der scharfen Bomben { index: s } */
   function fuseSeconds() {
     const out = {}, el = fuseInfo.ticking ? performance.now() - fuseInfo.at : 0;
@@ -551,7 +572,7 @@
     const b = $('board');
     const ps = room.players.slice().sort(rankSort);
     let h = '<h4>Rangliste <small class="muted">Punkte</small></h4>';
-    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<br>${['attract', 'repel'].map((f) => `<span><i style="color:${S.FIELD_COL[f]};border-color:${S.FIELD_COL[f]};box-shadow:0 0 8px ${S.FIELD_COL[f]}"></i>${S.FIELD_NAME[f]}</span>`).join('<br>')}<br><span><i style="color:#ff3a2a;border-color:#ff3a2a;background:#111"></i>Bombe: scharf bei Berührung, Countdown läuft nach dem Zug</span><br><span><i style="color:${S.NEON.band};border-color:${S.NEON.band};border-radius:2px"></i>Gummiband (verstärkt Abprall)</span><p class="muted">Schlag ${P.config.sling.shots.join(' & ')}: <b style="color:#00eaff">SLING BALL</b> – Ball mit der Maus lenken.<br>Schlag ${P.config.ultimate.afterShots + 1}: <b style="color:#ff2e88">ULTIMATE BALL</b> – frisst alles auf seinem Weg und wächst, Zeitlupe, lenken.</p>${pointsHelp()}</div>`;
+    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<br>${['attract', 'repel'].map((f) => `<span><i style="color:${S.FIELD_COL[f]};border-color:${S.FIELD_COL[f]};box-shadow:0 0 8px ${S.FIELD_COL[f]}"></i>${S.FIELD_NAME[f]}</span>`).join('<br>')}<br><span><i style="color:#ff3a2a;border-color:#ff3a2a;background:#111"></i>Bombe (groß/klein): ab dem 2. Schlag scharf bei Berührung, Countdown nach dem Zug, sprengt neue Pucks frei</span><br><span><i style="color:${S.NEON.band};border-color:${S.NEON.band};border-radius:2px"></i>Gummiband (verstärkt Abprall)</span><p class="muted">Schlag ${P.config.sling.shots.join(' & ')}: <b style="color:#00eaff">SLING BALL</b> – Ball mit der Maus lenken.<br>Schlag ${P.config.ultimate.afterShots + 1}: <b style="color:#ff2e88">ULTIMATE BALL</b> – frisst alles auf seinem Weg und wächst, Zeitlupe, lenken.</p>${pointsHelp()}</div>`;
     for (const p of ps) {
       const a = anims.get(p.id);
       const rolling = a && !a.done;
@@ -642,10 +663,11 @@
   function predPucks() {
     const mine = me();
     const balls = room ? room.players.filter((q) => q.id !== myId && q.ball && !q.sunk).map((q) => ({ id: q.id, x: q.ball.x, y: q.ball.y })) : [];
-    const key = pucksVer + '|' + balls.map((b) => b.id + ':' + b.x + ',' + b.y).join(';') + '|' + (mine && mine.ball ? mine.ball.x + ',' + mine.ball.y : '');
+    const noArm = mine ? !P.canArm(mine.shots + 1) : false;
+    const key = pucksVer + '|' + balls.map((b) => b.id + ':' + b.x + ',' + b.y).join(';') + '|' + (mine && mine.ball ? mine.ball.x + ',' + mine.ball.y : '') + '|' + noArm;
     if (!predCache || predCache.key !== key) {
       const list = mine && mine.ball ? pucks.concat(P.ballBodies(balls, mine.ball.x, mine.ball.y)) : pucks;
-      predCache = { key, list, ver: key, glass };
+      predCache = { key, list, ver: key, glass, noArm };
     }
     return predCache;
   }
@@ -783,7 +805,9 @@
         const sec = Math.ceil(fs[i]);
         if (lastTickSec[i] !== sec && sec > 0) { lastTickSec[i] = sec; sfx.fuseTick(sec <= 2); }
       }
-      S.drawPucks(ctx, blastAnim ? blastAnim.pucks : live ? live.pucks : pucks, t, fs);
+      const meP = me(); // eigener 1. Schlag: Bomben „schlafen“ noch
+      const dormant = !live && !blastAnim && myTurn() && meP && !P.canArm(meP.shots + 1);
+      S.drawPucks(ctx, blastAnim ? blastAnim.pucks : live ? live.pucks : pucks, t, fs, dormant);
       // Magnetfelder
       const livePucks = blastAnim ? blastAnim.pucks : live ? live.pucks : pucks;
       const fields = [];
@@ -854,7 +878,11 @@
         const left = Math.max(0, Math.ceil((turnDeadline - performance.now()) / 1000));
         const el = $('hudTimer'); const txt = left + ' s';
         if (el.textContent !== txt) { el.textContent = txt; el.classList.toggle('low', left <= 10); }
-      } else if ($('hudTimer').textContent) $('hudTimer').textContent = '';
+        updateBigTimer(left);
+      } else {
+        if ($('hudTimer').textContent) $('hudTimer').textContent = '';
+        updateBigTimer(null);
+      }
       const pw = ctrl.dragging ? ctrl.power : ctrl.lastPower;
       $('hudPower').textContent = ctrl.enabled ? `Kraft ${(pw * 100).toFixed(0)} % · Winkel ${((ctrl.angle * 180 / Math.PI + 360) % 360).toFixed(1)}°` : '';
     }
