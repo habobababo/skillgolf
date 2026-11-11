@@ -73,13 +73,12 @@
       "radius": 16,
       "share": 0.25
     },
+    "fieldCount": 1,
     "attract": {
-      "count": 2,
       "radius": 230,
       "strength": 900
     },
     "repel": {
-      "count": 2,
       "radius": 210,
       "strength": 1100
     }

@@ -63,8 +63,9 @@
       light: { mass: 0.6, radius: 11, share: 0.4 },
       medium: { mass: 2.5, radius: 13, share: 0.35 },
       heavy: { mass: 14, radius: 16, share: 0.25 },
-      attract: { count: 2, radius: 230, strength: 900 },   // Gravitations-Pucks: ziehen den Ball an
-      repel: { count: 2, radius: 210, strength: 1100 },    // Abstoß-Pucks: drücken den Ball weg
+      fieldCount: 1,       // so viele Pucks pro Bahn bekommen ein Feld (zufällig Gravitation oder Abstoßung)
+      attract: { radius: 230, strength: 900 },   // Gravitation: zieht den Ball an
+      repel: { radius: 210, strength: 1100 },    // Abstoßung: drückt den Ball weg
     },
     ultimate: {            // „next BALL is ULTIMATE BALL“
       afterShots: 5,       // nach so vielen Schlägen ist der nächste Schlag erzwungen Ultimate (0 = aus)
@@ -150,7 +151,8 @@
     c.pucks.count = Math.round(lim(c.pucks.count, 10, 60));
     for (const k of ['light', 'medium', 'heavy']) { c.pucks[k].mass = lim(c.pucks[k].mass, 0.05, 1000); c.pucks[k].radius = lim(c.pucks[k].radius, 4, 60); }
     c.pucks.ballMass = lim(c.pucks.ballMass, 0.05, 1000);
-    for (const k of ['attract', 'repel']) { c.pucks[k].count = Math.round(lim(c.pucks[k].count, 0, 30)); c.pucks[k].radius = lim(c.pucks[k].radius, 10, 3000); c.pucks[k].strength = lim(c.pucks[k].strength, 0, 20000); }
+    c.pucks.fieldCount = Math.round(lim(c.pucks.fieldCount, 0, 30));
+    for (const k of ['attract', 'repel']) { c.pucks[k].radius = lim(c.pucks[k].radius, 10, 3000); c.pucks[k].strength = lim(c.pucks[k].strength, 0, 20000); }
     c.glass.breakSpeed = lim(c.glass.breakSpeed, 0, 30000); c.glass.keep = lim(c.glass.keep, 0, 1); c.glass.bounce = lim(c.glass.bounce, 0, 2);
     c.bounce.band = lim(c.bounce.band, 0, 3); c.bounce.bandKick = lim(c.bounce.bandKick, 0, 3000);
     c.ultimate.afterShots = Math.round(lim(c.ultimate.afterShots, 0, 50));
@@ -687,11 +689,9 @@
       const q = out[i];
       return (q.x - cm.hole.x) ** 2 + (q.y - cm.hole.y) ** 2 > 220 * 220 && (q.x - cm.start.x) ** 2 + (q.y - cm.start.y) ** 2 > 220 * 220;
     });
-    for (const f of ['attract', 'repel']) {
-      for (let k = 0; k < PK[f].count && cand.length; k++) {
-        const j = Math.floor(R() * cand.length), i = cand.splice(j, 1)[0];
-        out[i].f = f;
-      }
+    for (let k = 0; k < PK.fieldCount && cand.length; k++) {
+      const j = Math.floor(R() * cand.length), i = cand.splice(j, 1)[0];
+      out[i].f = R() < 0.5 ? 'attract' : 'repel';
     }
     return out;
   }
