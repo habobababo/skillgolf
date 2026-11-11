@@ -848,7 +848,7 @@
       S.drawPucks(ctx, blastAnim ? blastAnim.pucks : live ? live.pucks : pucks, t, fs, dormant);
       // Gadgets: während eines Schlags dessen Liste (eingesammelte verschwinden), sonst die aktuellen
       let hl = null;
-      if (!live && ctrl.dragging && ctrl.pred && ctrl.pred.picked && ctrl.pred.picked.length) hl = new Set(ctrl.pred.picked);
+      if (!live && !P.config.preview.untilFirstHit && ctrl.dragging && ctrl.pred && ctrl.pred.picked && ctrl.pred.picked.length) hl = new Set(ctrl.pred.picked);
       S.drawGadgets(ctx, live && live.s.gadgets.length ? live.s.gadgets : (live ? [] : room.gadgets), t, hl);
       // Magnetfelder
       const livePucks = blastAnim ? blastAnim.pucks : live ? live.pucks : pucks;

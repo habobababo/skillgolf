@@ -670,6 +670,18 @@
     if (!pred || !pred.points || pred.points.length < 4) return;
     opts = opts || {};
     const cfg = P.config.preview;
+    // nur der eigene Ball, und (Standard) nur bis zur ersten Kollision
+    if (!cfg.pucks || cfg.untilFirstHit) {
+      const cut = { ...pred };
+      if (!cfg.pucks) cut.ppaths = null;
+      if (cfg.untilFirstHit && pred.bounces && pred.bounces.length >= 2) {
+        const bx = pred.bounces[0], by = pred.bounces[1], p0 = pred.points;
+        for (let i = 2; i < p0.length; i += 2) {
+          if (p0[i] === bx && p0[i + 1] === by) { cut.points = p0.slice(0, i + 2); cut.bounces = []; cut.result = 'hit'; break; }
+        }
+      }
+      pred = cut;
+    }
     const portion = clamp(opts.portion == null ? 1 : opts.portion, 0, 1);
     if (portion <= 0) return;
     const full = portion >= 0.999;
@@ -767,6 +779,17 @@
       } else if (pred.result === 'water') {
         ctx.strokeStyle = '#ff3860'; ctx.lineWidth = 3; glow(ctx, '#ff3860', 14);
         ctx.beginPath(); ctx.moveTo(ex - 8, ey - 8); ctx.lineTo(ex + 8, ey + 8); ctx.moveTo(ex + 8, ey - 8); ctx.lineTo(ex - 8, ey + 8); ctx.stroke();
+      } else if (pred.result === 'hit') {
+        // erste Kollision: Aufprall-Stern
+        const s1 = 9 + Math.sin(t * 10) * 1.5;
+        ctx.globalAlpha = ghost ? 0.55 : 1; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5; glow(ctx, color, 14);
+        for (let k = 0; k < 4; k++) {
+          const a = k * Math.PI / 4 + Math.PI / 8;
+          ctx.beginPath(); ctx.moveTo(ex + Math.cos(a) * 3, ey + Math.sin(a) * 3); ctx.lineTo(ex + Math.cos(a) * s1, ey + Math.sin(a) * s1);
+          ctx.moveTo(ex - Math.cos(a) * 3, ey - Math.sin(a) * 3); ctx.lineTo(ex - Math.cos(a) * s1, ey - Math.sin(a) * s1); ctx.stroke();
+        }
+        ctx.fillStyle = color; ctx.beginPath(); ctx.arc(ex, ey, P.BALL_R * 0.7, 0, 7); ctx.fill();
+        noGlow(ctx);
       } else if (pred.result === 'rest') {
         // Endposition: deutliches Abbild des eigenen Balls mit Fadenkreuz und pulsierendem Ring
         const R = P.BALL_R, pr = R + 9 + Math.sin(t * 6) * 2.5;

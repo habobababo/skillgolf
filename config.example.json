@@ -71,7 +71,9 @@
     "width": 4,
     "minWidth": 1.2,
     "fade": 0.8,
-    "fadeLength": 1500
+    "fadeLength": 1500,
+    "untilFirstHit": true,
+    "pucks": false
   },
   "pucks": {
     "count": 12,
