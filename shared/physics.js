@@ -42,6 +42,10 @@
       band: 1.3,           // Gummiband: über 1 = Ball kommt schneller zurück, als er kam
       bandKick: 140,       // zusätzlicher Schwung vom Gummiband
     },
+    gravityPuck: {         // Jeder Spieler kann pro Bahn einen Gravitations-Puck abschießen (zählt nicht als Schlag)
+      perHole: 1,
+      speed: 1,            // Abschuss-Tempo relativ zum Ball
+    },
     glass: {               // Glaswände: zerbrechen bei genug Tempo, sonst prallt man ab
       breakSpeed: 1100,    // ab diesem Aufprall-Tempo (px/s) zerbricht das Glas
       keep: 0.55,          // Anteil des Tempos, der nach dem Durchbrechen bleibt
@@ -156,6 +160,7 @@
     c.pucks.bombs.count = Math.round(lim(c.pucks.bombs.count, 0, 30)); c.pucks.bombs.fuse = lim(c.pucks.bombs.fuse, 0.5, 120);
     c.pucks.bombs.radius = lim(c.pucks.bombs.radius, 10, 3000); c.pucks.bombs.force = lim(c.pucks.bombs.force, 0, 30000);
     for (const k of ['attract', 'repel']) { c.pucks[k].radius = lim(c.pucks[k].radius, 10, 3000); c.pucks[k].strength = lim(c.pucks[k].strength, 0, 20000); }
+    c.gravityPuck.perHole = Math.round(lim(c.gravityPuck.perHole, 0, 10)); c.gravityPuck.speed = lim(c.gravityPuck.speed, 0.05, 3);
     c.glass.breakSpeed = lim(c.glass.breakSpeed, 0, 30000); c.glass.keep = lim(c.glass.keep, 0, 1); c.glass.bounce = lim(c.glass.bounce, 0, 2);
     c.bounce.band = lim(c.bounce.band, 0, 3); c.bounce.bandKick = lim(c.bounce.bandKick, 0, 3000);
     c.ultimate.afterShots = Math.round(lim(c.ultimate.afterShots, 0, 50));
@@ -322,6 +327,7 @@
       const o = { x: q.x, y: q.y, vx: q.vx || 0, vy: q.vy || 0, r: q.r, m: q.m, c: q.c, f: q.f || null, alive: q.alive !== false };
       if (q.bomb) { o.bomb = true; o.armed = !!q.armed; }
       if (q.pb != null) { o.pb = q.pb; o.ox = q.ox; o.oy = q.oy; }
+      if (q.gp != null) o.gp = q.gp;
       return o;
     });
   }
@@ -332,6 +338,7 @@
       if (q.pb != null) continue; // Spielerbälle aus einer Explosion gehören nicht dazu
       const o = { x: q.x, y: q.y, r: q.r, m: q.m, c: q.c, alive: q.alive };
       if (q.f) o.f = q.f;
+      if (q.gp != null) o.gp = q.gp;
       if (q.bomb) { o.bomb = true; o.armed = !!q.armed; }
       out.push(o);
     }
@@ -704,6 +711,36 @@
     }
     return s;
   }
+  /**
+   * Gravitations-Puck abschießen: startet direkt vor dem Ball des Schützen (id) in Schussrichtung.
+   * balls: alle liegenden Bälle inkl. Schütze. Läuft wie blastState mit step() bis allDone.
+   */
+  function launchState(cm, pucks, balls, glass, id, angle, power) {
+    const bodies = clonePucks(pucks);
+    let from = null;
+    for (const b of balls || []) {
+      bodies.push({ x: b.x, y: b.y, vx: 0, vy: 0, r: K.ballRadius, m: K.pucks.ballMass, c: 'ball', f: null, alive: true, pb: b.id, ox: b.x, oy: b.y });
+      if (b.id === id) from = b;
+    }
+    const s = createState(-1e6, -1e6, 0, 0, [], { glass });
+    s.pucks = bodies; s.done = true; s.result = 'rest';
+    if (!from) { s.allDone = true; return s; }
+    const md = K.pucks.medium, dx = dcos(angle), dy = dsin(angle), v = shotVelocity(angle, power);
+    const r = md.radius, d = K.ballRadius + r + 1;
+    const q = { x: from.x + dx * d, y: from.y + dy * d, vx: v.vx * K.gravityPuck.speed, vy: v.vy * K.gravityPuck.speed, r, m: md.mass, c: 'medium', f: 'attract', alive: true, gp: id };
+    s.pucks.splice(pucks.length, 0, q); // gehört zu den Pucks (vor den Bällen)
+    s.launched = pucks.length;
+    s.pevents.push({ type: 'launch', x: q.x, y: q.y });
+    // im Startpunkt schon in einer Wand? dann direkt am Ball liegen lassen
+    collideStatic(cm, q, r, false, s);
+    return s;
+  }
+  function launch(cm, pucks, balls, glass, id, angle, power) {
+    const s = launchState(cm, pucks, balls, glass, id, angle, power);
+    while (!s.allDone && s.t < K.maxShotTime + 1) step(cm, s);
+    return { pucks: exportPucks(s), balls: blastBalls(s), glass: exportGlass(s), time: s.t };
+  }
+
   /** Explosion komplett rechnen -> neue Pucks, Ballpositionen, Glas */
   function blast(cm, pucks, balls, glass, idx) {
     const s = blastState(cm, pucks, balls, glass, idx);
@@ -809,7 +846,7 @@
   const api = {
     DT, DEFAULTS, DEFAULT_CONFIG,
     configure, compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap, spawnPucks, exportPucks, exportGlass, modeCfg, shotMode,
-    holePoints, shotBonus, dsin, dcos, blastState, blast, blastBalls,
+    holePoints, shotBonus, dsin, dcos, blastState, blast, blastBalls, launchState, launch,
   };
   // Live-Werte (ändern sich mit configure)
   Object.defineProperties(api, {

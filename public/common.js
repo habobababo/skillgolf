@@ -787,6 +787,7 @@
       if (this.hum) { const t = this.ac.currentTime; this.hum.g.gain.setValueAtTime(0.004, t); this.hum.g.gain.setTargetAtTime(0.035, t + 0.05, 0.03); }
     }
     band(v) { const vol = clamp(v / 1400, 0.08, 0.35); this.tone(140, 0.28, 'sine', vol, 420); this.tone(70, 0.3, 'triangle', vol * 0.6, 200); }
+    launch() { this.tone(220, 0.35, 'sine', 0.2, 900); this.tone(110, 0.4, 'triangle', 0.12, 60); this.noise(0.2, 0.08, 2500, 300); }
     arm() { this.tone(1200, 0.06, 'square', 0.08); this.tone(1600, 0.06, 'square', 0.08, null, 0.08); this.noise(0.3, 0.06, 6000, 3000, 0, 'highpass'); }
     fuseTick(urgent) { this.tone(urgent ? 1500 : 1000, 0.05, 'square', urgent ? 0.1 : 0.06); }
     boom() {
@@ -1081,8 +1082,9 @@
 
   /** Explosion zwischen den Zügen als Animation (gleiche Physik wie der Server) */
   class BlastAnim {
-    constructor(cm, pucks0, balls0, glass0, idx) {
-      this.cm = cm; this.s = P.blastState(cm, pucks0 || [], balls0 || [], glass0 || [], idx);
+    /** state: P.blastState(...) oder P.launchState(...) */
+    constructor(cm, state) {
+      this.cm = cm; this.s = state;
       this.acc = 0; this.events = []; this.trail = []; this.fade = 0; this.timeScale = 1; this.blast = true;
       this.pp = this.s.pucks.map((q) => [q.x, q.y]);
       this.flush();
@@ -1155,6 +1157,9 @@
         fx.spark(e.x, e.y, '#5aa0ff', 30, 260, { life: 0.7, kind: 'dot', drag: 4, size: 2.2 });
         fx.ring(e.x, e.y, PUCK_COL[e.c] || '#2f7bff', 40, 0.6, 3);
         if (sfx) sfx.splash();
+      } else if (e.type === 'launch') {
+        fx.spark(e.x, e.y, '#c36bff', 24, 380, { life: 0.5 }); fx.ring(e.x, e.y, '#c36bff', 50, 0.4, 4);
+        if (sfx) sfx.launch();
       } else if (e.type === 'arm') {
         fx.spark(e.x, e.y, '#ffd23a', 14, 200, { life: 0.4 }); fx.ring(e.x, e.y, '#ff3a2a', 34, 0.35, 3);
         if (sfx) sfx.arm();

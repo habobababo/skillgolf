@@ -136,7 +136,7 @@ function publicRoom(room) {
     turn: publicTurn(room), fuses: publicFuses(room),
     players: room.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, ultUsed: !!p.ultUsed, scores: p.scores, points: p.points, bonus: p.bonus || 0, shots: p.shots, done: p.done, sunk: p.sunk,
-      magnet: !!p.magnet, magnetPuck: p.magnet && p.magnetPuck != null ? p.magnetPuck : null, magnetLeft: p.magnetLeft ?? 0,
+      magnet: !!p.magnet, magnetPuck: p.magnet && p.magnetPuck != null ? p.magnetPuck : null, magnetLeft: p.magnetLeft ?? 0, gpuckLeft: p.gpuckLeft ?? 0,
       ball: p.ball,
     })),
   };
@@ -165,6 +165,7 @@ function startHole(room) {
     p.shots = 0; p.done = false; p.sunk = false; p.busyUntil = 0; p.ultUsed = false;
     p.magnet = false; p.magnetLeft = P.config.magnet.usesPerHole;
     p.bonus = 0; p.puckBonus = 0;
+    p.gpuckLeft = P.config.gravityPuck.perHole;
     while (p.scores.length < room.holeIndex) p.scores.push(null);
     while (p.points.length < room.holeIndex) p.points.push(null);
   }
@@ -229,6 +230,33 @@ function fuseExpired(room) {
     if (room.turn !== t || room.phase !== 'playing') return;
     const q = room.players.find((x) => x.id === t.id);
     if (q && !q.done) beginTurn(room, t.id); else endTurn(room); // Spieler weg/fertig -> Nächster
+  }, ms);
+}
+
+// ---------------------------------------------------------------- Gravitations-Puck (zählt nicht als Schlag)
+function handleGPuck(room, p, msg) {
+  const t = room.turn;
+  if (room.phase !== 'playing' || !t || t.id !== p.id || t.phase !== 'aim' || p.done) return send(p.ws, { type: 'error', text: 'Du bist nicht dran' });
+  if ((p.gpuckLeft || 0) <= 0) return send(p.ws, { type: 'error', text: 'Gravity-Puck auf dieser Bahn schon benutzt' });
+  if (!p.ball) return;
+  const angle = Number(msg.angle), power = Math.max(0.03, Math.min(1, Number(msg.power)));
+  if (!Number.isFinite(angle) || !Number.isFinite(power)) return;
+  p.gpuckLeft--;
+  pauseFuses(room); clearTimeout(t.timer);
+  const balls = room.players.filter((q) => q.ball && !q.sunk).map((q) => ({ id: q.id, x: q.ball.x, y: q.ball.y }));
+  const pucks0 = room.pucks, glass0 = room.glass || [];
+  const r = P.launch(room.cm, pucks0, balls, glass0, p.id, angle, power);
+  room.pucks = r.pucks; room.glass = r.glass;
+  for (const b of r.balls) { const q = room.players.find((x) => x.id === b.id); if (q) q.ball = { x: b.x, y: b.y }; }
+  noteArmed(room);
+  t.phase = 'blast'; t.deadline = 0;
+  const ms = r.time * 1000 + 400;
+  broadcast(room, { type: 'gpuck', id: p.id, angle, power, balls0: balls, pucks0, glass0, pucks: r.pucks, balls: r.balls, glass: r.glass });
+  syncRoom(room);
+  setTimeout(() => {
+    if (room.turn !== t || room.phase !== 'playing') return;
+    const q = room.players.find((x) => x.id === t.id);
+    if (q && !q.done) beginTurn(room, t.id); else endTurn(room); // gleicher Spieler schlägt jetzt (mit neuer Zeit)
   }, ms);
 }
 
@@ -589,6 +617,9 @@ wss.on('connection', (ws) => {
         break;
       case 'ultInput':
         if (room) handleUltInput(room, p, msg);
+        break;
+      case 'gpuck':
+        if (room) handleGPuck(room, p, msg);
         break;
       case 'magnet':
         if (room) handleMagnet(room, p, msg);

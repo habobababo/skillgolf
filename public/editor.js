@@ -464,7 +464,7 @@
         T.fuse[i] -= dt * 1000;
         if (T.fuse[i] <= 0 && !T.blast) {
           delete T.fuse[i];
-          T.blast = new S.BlastAnim(T.cm, T.pucks, [{ id: 0, x: T.ball.x, y: T.ball.y }], T.glass, Number(i));
+          T.blast = new S.BlastAnim(T.cm, P.blastState(T.cm, T.pucks, [{ id: 0, x: T.ball.x, y: T.ball.y }], T.glass, Number(i)));
         }
       }
     }

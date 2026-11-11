@@ -67,6 +67,7 @@
       case 'shotEnd': onShotEnd(m); break;
       case 'turn': onTurn(m.turn); break;
       case 'blast': onBlast(m); break;
+      case 'gpuck': onGPuck(m); break;
       case 'magnet': onMagnet(m.id, m.puck); break;
       case 'timeout': onTimeout(m); break;
       case 'ultInput': { const a = anims.get(m.id); if (a && a.ult && !a.local) a.addInputs(m.inputs); break; }
@@ -211,11 +212,67 @@
   function onBlast(m) {
     if (!cm) return;
     fuseInfo = { ticking: false, list: fuseInfo.list.filter(([i]) => i !== m.idx), at: performance.now() };
-    blastAnim = new S.BlastAnim(cm, m.pucks0, m.balls0, m.glass0, m.idx);
+    blastAnim = new S.BlastAnim(cm, P.blastState(cm, m.pucks0, m.balls0, m.glass0, m.idx));
     blastAnim.final = m;
     if (turn) { turn.phase = 'blast'; turnDeadline = 0; }
     renderHud();
   }
+  /** Gravitations-Puck wurde abgeschossen (zählt nicht als Schlag) */
+  function onGPuck(m) {
+    if (!cm) return;
+    if (m.id === myId) { awaiting = false; gMode = false; }
+    blastAnim = new S.BlastAnim(cm, P.launchState(cm, m.pucks0, m.balls0, m.glass0, m.id, m.angle, m.power));
+    blastAnim.final = m; blastAnim.gpuck = true;
+    const p = room && room.players.find((x) => x.id === m.id);
+    if (p) { p.gpuckLeft = Math.max(0, (p.gpuckLeft || 0) - 1); if (m.id !== myId) toast(`🪐 ${p.name} schießt einen Gravity-Puck`); }
+    if (turn) { turn.phase = 'blast'; turnDeadline = 0; }
+    renderHud();
+  }
+  // --- Gravity-Puck-Modus (Taste F): nächster Abschuss ist ein Puck statt des Balls
+  let gMode = false, gPrev = null;
+  function canGPuck() { const p = me(); return !!(p && myTurn() && !blastAnim && !p.done && (p.gpuckLeft || 0) > 0 && P.config.gravityPuck.perHole > 0); }
+  function toggleGMode() {
+    if (!canGPuck()) { gMode = false; updateGPHint(); return; }
+    gMode = !gMode; sfx.click && sfx.click(); updateGPHint();
+    if (gMode) toast('🪐 Gravity-Puck: zielen & loslassen – zählt nicht als Schlag');
+  }
+  function updateGPHint() {
+    const el = $('gpHint'), p = me();
+    if (!canGPuck()) gMode = false;
+    const show = !!(p && room && room.phase === 'playing' && (p.gpuckLeft || 0) > 0 && !p.done && P.config.gravityPuck.perHole > 0);
+    el.classList.toggle('hidden', !show);
+    el.classList.toggle('on', gMode);
+    el.innerHTML = gMode ? '<kbd>F</kbd>🪐 GRAVITY-PUCK BEREIT – zielen & loslassen' : `<kbd>F</kbd>🪐 Gravity-Puck verschießen <span style="opacity:.7">(${p ? p.gpuckLeft || 0 : 0}×, kein Schlag)</span>`;
+  }
+  $('gpHint').onclick = toggleGMode;
+  window.addEventListener('keydown', (e) => { if (e.code === 'KeyF' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); toggleGMode(); } });
+  /** Vorschau für den Puck-Abschuss: Flugbahn des Pucks bis zum Liegen */
+  function gpuckPreview(mine) {
+    const key = mine.ball.x + ',' + mine.ball.y + ',' + ctrl.angle + ',' + ctrl.power + ',' + pucksVer;
+    if (gPrev && gPrev.key === key) return gPrev;
+    const balls = room.players.filter((q) => q.ball && !q.sunk).map((q) => ({ id: q.id, x: q.ball.x, y: q.ball.y }));
+    const st = P.launchState(cm, pucks, balls, glass, myId, ctrl.angle, ctrl.power);
+    const pts = [], i = st.launched;
+    let n = 0;
+    while (!st.allDone && st.t < 20) { const q = st.pucks[i]; if (n++ % 2 === 0) pts.push(q.x, q.y); if (!q.alive) break; P.step(cm, st); }
+    const q = st.pucks[i]; pts.push(q.x, q.y);
+    gPrev = { key, pts, end: q, alive: q.alive };
+    return gPrev;
+  }
+  function drawGPuckPreview(ctx, mine, t) {
+    const g = gpuckPreview(mine), R = P.config.pucks.attract.radius;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = '#c36bff'; ctx.lineWidth = 3; ctx.setLineDash([10, 8]); ctx.lineDashOffset = -t * 40; glow(ctx, '#c36bff', 12);
+    ctx.beginPath(); for (let k = 0; k < g.pts.length; k += 2) { if (k) ctx.lineTo(g.pts[k], g.pts[k + 1]); else ctx.moveTo(g.pts[k], g.pts[k + 1]); } ctx.stroke();
+    ctx.setLineDash([]);
+    if (g.alive) {
+      ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(g.end.x, g.end.y, R, 0, 7); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(g.end.x, g.end.y, g.end.r, 0, 7); ctx.stroke();
+    } else { ctx.beginPath(); ctx.moveTo(g.end.x - 8, g.end.y - 8); ctx.lineTo(g.end.x + 8, g.end.y + 8); ctx.moveTo(g.end.x + 8, g.end.y - 8); ctx.lineTo(g.end.x - 8, g.end.y + 8); ctx.stroke(); }
+    ctx.restore();
+  }
+  function glow(c, col, b) { c.shadowColor = col; c.shadowBlur = b; }
+
   function finishBlast() {
     const m = blastAnim.final;
     blastAnim = null;
@@ -426,6 +483,7 @@
   $('btnSkip').onclick = () => { if (confirm(`Bahn für alle beenden? Wer nicht eingelocht hat, bekommt ${P.config.points.miss} Punkte (+ bisherige Boni).`)) send({ type: 'skip' }); };
 
   function renderHud() {
+    updateGPHint();
     if (!room || !map) return;
     $('hudHole').textContent = `Bahn ${room.holeIndex + 1}/${room.playlist.length}`;
     $('hudMap').innerHTML = esc(map.name) + (map.difficulty === 'hard' ? ' <span class="dtag hard">HART</span>' : '');
@@ -439,7 +497,7 @@
     const tp = turn && room.players.find((x) => x.id === turn.id);
     const flying = turn && turn.phase === 'flight';
     $('hudTurn').innerHTML = room.phase !== 'playing' || !tp ? ''
-      : turn.phase === 'blast' ? '<b style="color:#ff6a1a">💥 EXPLOSION …</b>'
+      : turn.phase === 'blast' ? (blastAnim && blastAnim.gpuck ? '<b style="color:#c36bff">🪐 Gravity-Puck fliegt …</b>' : '<b style="color:#ff6a1a">💥 EXPLOSION …</b>')
       : tp.id === myId ? (flying ? 'Dein Ball rollt …' : '<b class="you">DU BIST DRAN</b>')
       : `Am Zug: <b style="color:${tp.color}">${esc(tp.name)}</b>${flying ? ' · rollt …' : ''}`;
     updateMagnetBtn();
@@ -556,6 +614,7 @@
     getPucks: () => ({ list: pucks, ver: pucksVer, glass }),
     shotMode: () => nextMode(me()),
     onShoot: (angle, power) => {
+      if (gMode && canGPuck()) { awaiting = true; send({ type: 'gpuck', angle, power }); gMode = false; updateGPHint(); setTimeout(() => { awaiting = false; }, 3000); return; }
       // welche Magnete waren in meiner Vorschau? (Server ignoriert ganz frische, die ich noch nicht sehen konnte)
       const mags = room.players.filter((q) => q.id !== myId && q.magnet && (q.magnetPuck != null || (q.ball && !q.sunk))).map((q) => q.id);
       awaiting = true; send({ type: 'shot', angle, power, mags });
@@ -758,7 +817,10 @@
           ctx.strokeStyle = mine.color; ctx.globalAlpha = 0.35 + Math.sin(t * 5) * 0.25; ctx.lineWidth = 2;
           ctx.beginPath(); ctx.arc(mine.ball.x, mine.ball.y, P.BALL_R + 18 + Math.sin(t * 5) * 3, 0, 7); ctx.stroke(); ctx.restore();
         }
-        ctrl.draw(ctx, mine.ball, mine.color, cmForMe(mine), 60, t);
+        if (gMode && canGPuck()) {
+          ctrl.draw(ctx, mine.ball, '#c36bff', cmForMe(mine), 60, t, 0); // nur Pfeil, keine Ball-Vorschau
+          if (ctrl.dragging) drawGPuckPreview(ctx, mine, t);
+        } else ctrl.draw(ctx, mine.ball, mine.color, cmForMe(mine), 60, t);
       }
       fx.draw(ctx);
       for (const [, a] of anims) if (a.steering) S.drawUltOverlay(ctx, view, a, a.local ? ctrl.mouse : null, t);

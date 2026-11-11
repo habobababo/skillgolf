@@ -151,4 +151,8 @@ table.score .ptot { color: #ffe03a; text-shadow: 0 0 8px rgba(255,224,58,.6); fo
 #ultBanner.opp b { font-size: 72px; background-image: linear-gradient(90deg, var(--opp, #ff3860), #ffffff, var(--opp, #ff3860)); filter: drop-shadow(0 0 16px var(--opp, #ff3860)); }
 #ultBanner.opp small { font-size: 24px; letter-spacing: 4px; text-shadow: 0 0 12px var(--opp, #ff3860); }
 @media (max-width: 800px) { #ultBanner.opp b { font-size: 36px; } }
+#gpHint { font-size: 11px; letter-spacing: 1px; color: #c9a6ff; border: 1px solid rgba(195,107,255,.45); border-radius: 12px; padding: 3px 9px; cursor: pointer; white-space: nowrap; }
+#gpHint kbd { font: 800 11px system-ui, sans-serif; background: #c36bff; color: #12001f; border-radius: 4px; padding: 0 5px; margin-right: 4px; }
+#gpHint.on { color: #fff; background: rgba(195,107,255,.35); box-shadow: 0 0 14px rgba(195,107,255,.8); animation: magpulse .6s ease-in-out infinite alternate; }
+@media (max-width: 800px) { #gpHint { font-size: 10px; } }
 #btnMagnet small.hint { display: block; font-size: 10px; opacity: .7; letter-spacing: 1px; }

@@ -40,6 +40,10 @@
     "band": 1.3,
     "bandKick": 140
   },
+  "gravityPuck": {
+    "perHole": 1,
+    "speed": 1
+  },
   "glass": {
     "breakSpeed": 1100,
     "keep": 0.55,
