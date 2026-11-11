@@ -111,8 +111,8 @@
     if (m.id === myId) awaiting = false;
     const mode = m.mode || (m.ult ? 'ult' : null);
     const ult = !!mode;
-    const a = new S.BallAnim(P.withBalls(cm, m.others, m.from.x, m.from.y, m.magnets, m.magPucks), m.from, m.vx, m.vy, m.end, m.result,
-      { pucks: m.pucks0, glass: m.glass0, mode, local: ult && m.id === myId });
+    const a = new S.BallAnim(P.withBalls(cm, m.others || [], m.from.x, m.from.y, m.magnets, m.magPucks, m.magBalls), m.from, m.vx, m.vy, m.end, m.result,
+      { pucks: m.pucks0, glass: m.glass0, balls: m.balls0, mode, local: ult && m.id === myId });
     a.player = p; a.final = ult ? null : m; a.born = performance.now(); a.seq = m.seq;
     anims.set(m.id, a);
     p.shots = m.shots;
@@ -124,13 +124,22 @@
       ultBy = m.id;
       if (mode === 'ult') p.ultUsed = true;
       if (m.id !== myId) toast(mode === 'ult' ? `⚡ ${p.name}: ULTIMATE BALL!` : `🌀 ${p.name}: SLING BALL`, mode === 'ult');
-    } else { p.ball = m.end; setGlass(m.glass); setPucks(m.pucks); }
+    } else { p.ball = m.end; setGlass(m.glass); setPucks(m.pucks); setBalls(m.balls); }
     renderHud(); renderBoard();
+  }
+  /** angestoßene Gegnerbälle: Endpositionen übernehmen (Animation zeigt den Weg dorthin) */
+  function setBalls(list) {
+    for (const b of list || []) {
+      const q = room && room.players.find((x) => x.id === b.id);
+      if (!q || !q.ball || q.sunk) continue;
+      q.ball = { x: b.x, y: b.y };
+      if (b.eaten) toast(b.id === myId ? '😱 Dein Ball wurde GEFRESSEN – zurück zum Abschlag!' : `😋 ${q.name}s Ball wurde gefressen`, b.id === myId);
+    }
   }
 
   function onShotEnd(m) {
     if (ultBy === m.id) ultBy = null;
-    setGlass(m.glass); setPucks(m.pucks);
+    setGlass(m.glass); setPucks(m.pucks); setBalls(m.balls);
     const p = room && room.players.find((x) => x.id === m.id);
     if (!p || m.gone) { const a = anims.get(m.id); if (a) a.final = a.final || m; else if (m.seq) send({ type: 'animDone', seq: m.seq }); return; }
     p.ball = m.end; p.shots = m.shots;
@@ -540,7 +549,7 @@
     const b = $('board');
     const ps = room.players.slice().sort(rankSort);
     let h = '<h4>Rangliste <small class="muted">Punkte</small></h4>';
-    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<br>${['attract', 'repel'].map((f) => `<span><i style="color:${S.FIELD_COL[f]};border-color:${S.FIELD_COL[f]};box-shadow:0 0 8px ${S.FIELD_COL[f]}"></i>${S.FIELD_NAME[f]}</span>`).join('<br>')}<br><span><i style="color:#ff3a2a;border-color:#ff3a2a;background:#111"></i>Bombe: scharf bei Berührung, Countdown läuft nach dem Zug</span><br><span><i style="color:${S.NEON.band};border-color:${S.NEON.band};border-radius:2px"></i>Gummiband (verstärkt Abprall)</span><p class="muted">Schlag ${P.config.sling.shots.join(' & ')}: <b style="color:#00eaff">SLING BALL</b> – Ball mit der Maus lenken.<br>Schlag ${P.config.ultimate.afterShots + 1}: <b style="color:#ff2e88">ULTIMATE BALL</b> – Pucks wegsprengen, Zeitlupe, lenken.</p>${pointsHelp()}</div>`;
+    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<br>${['attract', 'repel'].map((f) => `<span><i style="color:${S.FIELD_COL[f]};border-color:${S.FIELD_COL[f]};box-shadow:0 0 8px ${S.FIELD_COL[f]}"></i>${S.FIELD_NAME[f]}</span>`).join('<br>')}<br><span><i style="color:#ff3a2a;border-color:#ff3a2a;background:#111"></i>Bombe: scharf bei Berührung, Countdown läuft nach dem Zug</span><br><span><i style="color:${S.NEON.band};border-color:${S.NEON.band};border-radius:2px"></i>Gummiband (verstärkt Abprall)</span><p class="muted">Schlag ${P.config.sling.shots.join(' & ')}: <b style="color:#00eaff">SLING BALL</b> – Ball mit der Maus lenken.<br>Schlag ${P.config.ultimate.afterShots + 1}: <b style="color:#ff2e88">ULTIMATE BALL</b> – frisst alles auf seinem Weg und wächst, Zeitlupe, lenken.</p>${pointsHelp()}</div>`;
     for (const p of ps) {
       const a = anims.get(p.id);
       const rolling = a && !a.done;
@@ -611,7 +620,7 @@
       for (const [, a] of anims) if (!a.done) return false;
       return true;
     },
-    getPucks: () => ({ list: pucks, ver: pucksVer, glass }),
+    getPucks: () => predPucks(),
     shotMode: () => nextMode(me()),
     onShoot: (angle, power) => {
       if (gMode && canGPuck()) { awaiting = true; send({ type: 'gpuck', angle, power }); gMode = false; updateGPHint(); setTimeout(() => { awaiting = false; }, 3000); return; }
@@ -626,20 +635,31 @@
   $('btnMute').onclick = () => { $('btnMute').textContent = sfx.toggle() ? '🔇' : '🔊'; $('btnMute').blur(); };
   window.addEventListener('keydown', (e) => { if (e.code === 'KeyM' && document.activeElement.tagName !== 'INPUT') $('btnMute').click(); });
 
+  // Pucks + liegende Gegnerbälle (als bewegliche Körper) für die Vorschau
+  let predCache = null;
+  function predPucks() {
+    const mine = me();
+    const balls = room ? room.players.filter((q) => q.id !== myId && q.ball && !q.sunk).map((q) => ({ id: q.id, x: q.ball.x, y: q.ball.y })) : [];
+    const key = pucksVer + '|' + balls.map((b) => b.id + ':' + b.x + ',' + b.y).join(';') + '|' + (mine && mine.ball ? mine.ball.x + ',' + mine.ball.y : '');
+    if (!predCache || predCache.key !== key) {
+      const list = mine && mine.ball ? pucks.concat(P.ballBodies(balls, mine.ball.x, mine.ball.y)) : pucks;
+      predCache = { key, list, ver: key, glass };
+    }
+    return predCache;
+  }
+
   // Kollisionswelt für den eigenen nächsten Schlag (gleiche Regel wie der Server)
   let shotCm = null, shotCmKey = '';
   function cmForMe(mine) {
-    const others = [];
-    for (const q of room.players) if (q.id !== myId && q.ball && !q.sunk) others.push(q.ball.x, q.ball.y);
-    const mags = [], mp = [];
+    const mb = [], mp = [];
     for (const q of room.players) {
       if (q.id === myId || !q.magnet) continue;
       if (q.magnetPuck != null) { if (pucks[q.magnetPuck] && pucks[q.magnetPuck].alive) mp.push(q.magnetPuck); }
-      else if (q.ball && !q.sunk) mags.push(q.ball.x, q.ball.y);
+      else if (q.ball && !q.sunk) mb.push(q.id);
     }
-    const key = others.join(',') + '|' + mags.join(',') + '|' + mp.join(',') + '|' + mine.ball.x + ',' + mine.ball.y;
+    const key = mb.join(',') + '|' + mp.join(',') + '|' + mine.ball.x + ',' + mine.ball.y;
     if (key !== shotCmKey || !shotCm || shotCm.base !== cm) {
-      shotCm = P.withBalls(cm, others, mine.ball.x, mine.ball.y, mags, mp);
+      shotCm = P.withBalls(cm, [], mine.ball.x, mine.ball.y, [], mp, mb);
       shotCm.base = cm; shotCmKey = key;
     }
     return shotCm;
@@ -675,6 +695,8 @@
 
   function ballPos(p) {
     if (blastAnim) { const bp = blastAnim.ballPos(p.id); if (bp) return bp; }
+    // von einem fremden Schlag angestoßen?
+    for (const [id, o] of anims) if (id !== p.id && !o.done && o.ballPos) { const bp = o.ballPos(p.id); if (bp) return bp; }
     const a = anims.get(p.id);
     if (a) return a.done && a.result === 'water' ? p.ball : a.pos;
     return p.ball;
@@ -796,7 +818,8 @@
         const a = anims.get(p.id);
         if (p.done && p.sunk && !(a && !a.ballDone)) continue; // im Loch
         const pos = ballPos(p);
-        S.drawBall(ctx, pos.x, pos.y, p.color, p.id === myId ? null : p.name, p.id === myId ? 1 : 0.85);
+        const sc = a && !a.ballDone && a.s && a.s.br ? a.s.br / P.BALL_R : 1; // Ultimate wächst beim Fressen
+        S.drawBall(ctx, pos.x, pos.y, p.color, p.id === myId ? null : p.name, p.id === myId ? 1 : 0.85, null, 0, sc);
       }
       if (mine && mine.ball) {
         ctrl.update(dt, mine.ball);

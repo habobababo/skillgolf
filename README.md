@@ -6,7 +6,8 @@ Multiplayer-Minigolf im Browser mit eigenem Map-Editor.
 - **Neon-Arcade-Look** mit flackerndem Titel samt Neon-Brummen und -Knistern und vielen weiteren Effekten: Leuchtschweife hinter jedem Ball, Funken bei Treffern, aufblitzende Bumper, Screenshake, Wasser-Splash, Lochwirbel, Feuerwerk bei Birdie und Hole-in-One sowie synthetische Sounds (WebAudio, `M` schaltet den Ton stumm).
 - **Pucks**: Auf jeder Bahn liegen mindestens 10 Pucks an zufälligen Stellen. Sie werden echt simuliert und lassen sich anstoßen. Grün ist leicht, gelb mittel, rot schwer und kaum zu bewegen. Pucks können im Wasser versinken, und die Vorschau zeigt auch ihre Bahnen.
 - **SLING BALL**: Schlag 2 und 4 sind Sling-Schläge. Nach dem Abschlag lenkst du den Ball 2,5 Sekunden lang mit der Maus, in leichter Zeitlupe.
-- **ULTIMATE BALL**: Nach 5 Schlägen erscheint „next BALL is ULTIMATE BALL“, und der nächste Schlag ist erzwungen ein Ultimate-Schlag. Der Ball startet mit halber Geschwindigkeit, ein Stoß schleudert alle Pucks weg, dann läuft das Spiel in Zeitlupe und du steuerst den Ball 6 Sekunden lang mit der Maus. Die anderen Spieler sehen das live und können währenddessen nicht schlagen.
+- **ULTIMATE BALL**: Nach 5 Schlägen erscheint „next BALL is ULTIMATE BALL“, und der nächste Schlag ist erzwungen ein Ultimate-Schlag. Der Ball startet mit halber Geschwindigkeit, dann läuft das Spiel in Zeitlupe und du steuerst den Ball 6 Sekunden lang mit der Maus. Dabei **frisst er gnadenlos alles auf seinem Weg** und wird mit jedem Bissen größer: Pucks, Bomben, Gegnerbälle, Wände, Blöcke, Bumper, Gummibänder und Glas. Gefressene Hindernisse bleiben bis zum Ende der Bahn weg. Gefressene Gegnerbälle landen wieder am Abschlag, das kostet sie aber keinen Schlag. Nur der Außenrand hält stand. Die anderen Spieler sehen das live und können währenddessen nicht schlagen.
+- **Gegnerbälle sind beweglich**: Triffst du einen liegenden Gegnerball, schubst du ihn weg (Billard!). Fällt er dabei ins Wasser oder ins Loch, kommt er an seine alte Stelle zurück. Die Vorschau zeigt auch, wohin er rollt.
 - **Gummibänder** (orange, mit Pfosten): Der Ball prallt schneller zurück, als er kam, und das Band schwingt nach.
 - **Glaswände**: Ein schneller Ball zerbricht die Scheibe und verliert dabei knapp die Hälfte seines Tempos. Ist er zu langsam, prallt er ab. Kaputtes Glas bleibt für alle bis zum Ende der Bahn weg.
 - **Gravity-Puck (Taste `F`)**: Einmal pro Bahn kannst du in deinem Zug statt des Balls einen lila Gravitations-Puck abschießen, er startet direkt vor deinem Ball. Das zählt **nicht** als Schlag. Danach schlägst du ganz normal und kannst den Puck so nutzen, um deinen Schuss umzulenken. Ein kleiner Hinweis im HUD erinnert daran, auf dem Handy kann man ihn antippen. Beim Ziehen zeigt eine lila Vorschau, wo der Puck liegen bleibt.
@@ -71,7 +72,8 @@ nano config.json
 | `pucks.light/medium/heavy` | | `mass`, `radius`, `share` (Anteil) je Gewichtsklasse |
 | `pucks.ballMass` / `pucks.bounce` / `pucks.friction` | 1 / 0.8 / 1.4 | Masse des Balls im Vergleich, Elastizität, Reibung der Pucks |
 | `ultimate.afterShots` | 5 | Nach so vielen Schlägen ist der nächste Schlag Ultimate (0 = aus) |
-| `ultimate.kickRadius` / `ultimate.kickForce` | 2500 / 3000 | Reichweite und Stärke des Wegkick-Stoßes |
+| `ultimate.eat` / `ultimate.grow` / `ultimate.maxScale` | true / 2.5 / 3 | Ultimate frisst alles; Wachstum pro Bissen (px) und maximale Größe |
+| `ultimate.kickRadius` / `ultimate.kickForce` | 2500 / 3000 | Wegkick-Stoß beim Abschlag (nur wenn `eat` aus ist) |
 | `ultimate.launchFactor` | 0.5 | Startgeschwindigkeit des Ultimate-Balls relativ zum normalen Schlag |
 | `ultimate.slowmo` | 0.3 | Zeitlupen-Faktor |
 | `ultimate.steerTime` / `ultimate.steerAccel` | 6 / 2600 | Wie lange (Spielsekunden) und wie stark der Ball gesteuert wird |

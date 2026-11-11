@@ -403,10 +403,13 @@ function finishPlayer(room, p, sunk) {
 /** Modus des nächsten Schlags: 'ult' | 'sling' | null */
 function nextMode(p) { return P.shotMode(p.shots + 1, p.ultUsed); }
 
-function othersOf(room, p) {
-  const others = [];
-  for (const q of room.players) if (q !== p && q.ball && !q.sunk) others.push(q.ball.x, q.ball.y);
-  return others;
+/** liegende Gegnerbälle als bewegliche Körper (eingelochte nicht) */
+function ballsOf(room, p) {
+  return room.players.filter((q) => q !== p && q.ball && !q.sunk).map((q) => ({ id: q.id, x: q.ball.x, y: q.ball.y }));
+}
+/** angestoßene Gegnerbälle übernehmen */
+function applyBalls(room, balls) {
+  for (const b of balls || []) { const q = room.players.find((x) => x.id === b.id); if (q && q.ball && !q.sunk) q.ball = { x: b.x, y: b.y }; }
 }
 
 /** Ergebnis eines Schlags übernehmen (normal + Ultimate); gibt die Bonuspunkte des Schlags zurück */
@@ -420,6 +423,7 @@ function applyResult(room, p, from, r, busyMs, pucks0) {
   p.bonus = (p.bonus || 0) + puckPts + b.trick;
   room.pucks = r.pucks;
   room.glass = r.glass || room.glass;
+  applyBalls(room, r.balls);
   noteArmed(room);
   if (r.result === 'water') { p.ball = from; p.shots = Math.min(P.MAX_SHOTS, p.shots + P.config.waterPenalty); } else p.ball = { x: r.x, y: r.y };
   if (r.result === 'sunk') finishPlayer(room, p, true);
@@ -437,18 +441,18 @@ function handleShot(room, p, msg) {
   const mode = nextMode(p);
   const v = P.shotVelocity(angle, power, mode);
   const from = { x: p.ball.x, y: p.ball.y };
-  const others = othersOf(room, p); // liegende Gegnerbälle sind Hindernisse (eingelochte nicht)
+  const balls0 = ballsOf(room, p); // liegende Gegnerbälle können angestoßen werden
   // Magnete: nur die, die der Schütze in seiner Vorschau schon hatte – oder die schon länger aktiv sind.
   // So kann ein Magnet, der eine Sekunde vor dem Schlag kommt, die Vorschau nicht unbemerkt verfälschen.
   const seen = new Set(Array.isArray(msg.mags) ? msg.mags.map(Number) : []);
   const now = Date.now();
-  const magnets = [], magPucks = [];
+  const magnets = [], magPucks = [], magBalls = [];
   for (const q of room.players) {
     if (q === p || !q.magnet || !(seen.has(q.id) || now - (q.magnetAt || 0) > 1500)) continue;
     if (q.magnetPuck != null) { if (room.pucks[q.magnetPuck] && room.pucks[q.magnetPuck].alive) magPucks.push(q.magnetPuck); }
-    else if (q.ball && !q.sunk) magnets.push(q.ball.x, q.ball.y);
+    else if (q.ball && !q.sunk) magBalls.push(q.id);
   }
-  const cmShot = P.withBalls(room.cm, others, from.x, from.y, magnets, magPucks);
+  const cmShot = P.withBalls(room.cm, [], from.x, from.y, magnets, magPucks, magBalls);
   const pucks0 = room.pucks, glass0 = room.glass || [];
   p.shots++;
   turnFlight(room);
@@ -458,15 +462,15 @@ function handleShot(room, p, msg) {
     // gesteuerter Schlag (Ultimate/Sling): Ergebnis steht erst fest, wenn die Steuerung vorbei ist
     if (mode === 'ult') p.ultUsed = true;
     const U = P.modeCfg(mode);
-    room.ult = { pid: p.id, mode, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, glass0, inputs: [], max: Math.round(U.steerTime / P.DT) * 2, accel: U.steerAccel };
+    room.ult = { pid: p.id, mode, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, glass0, balls0, inputs: [], max: Math.round(U.steerTime / P.DT) * 2, accel: U.steerAccel };
     room.ult.timer = setTimeout(() => finishUltimate(room), (U.steerTime / U.slowmo + 15) * 1000);
-    broadcast(room, { type: 'shot', seq, id: p.id, mode, ult: mode === 'ult', from, others, magnets, magPucks, vx: v.vx, vy: v.vy, pucks0, glass0, shots: p.shots });
+    broadcast(room, { type: 'shot', seq, id: p.id, mode, ult: mode === 'ult', from, others: [], magnets, magPucks, magBalls, balls0, vx: v.vx, vy: v.vy, pucks0, glass0, shots: p.shots });
     return;
   }
 
-  const r = P.simulate(cmShot, from.x, from.y, v.vx, v.vy, { pucks: pucks0, glass: glass0 });
+  const r = P.simulate(cmShot, from.x, from.y, v.vx, v.vy, { pucks: pucks0, glass: glass0, balls: balls0 });
   const gain = applyResult(room, p, from, r, r.time * 1000, pucks0);
-  broadcast(room, { type: 'shot', seq, id: p.id, from, others, magnets, magPucks, vx: v.vx, vy: v.vy, pucks0, glass0, glass: r.glass, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
+  broadcast(room, { type: 'shot', seq, id: p.id, from, others: [], magnets, magPucks, magBalls, balls0, balls: r.balls, vx: v.vx, vy: v.vy, pucks0, glass0, glass: r.glass, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
   turnResolved(room, r.time * 1000);
 }
 
@@ -492,13 +496,13 @@ function finishUltimate(room) {
   clearTimeout(u.timer);
   room.ult = null;
   const p = room.players.find((q) => q.id === u.pid);
-  const r = P.simulate(u.cm, u.from.x, u.from.y, u.vx, u.vy, { pucks: u.pucks0, glass: u.glass0, kick: u.mode === 'ult', inputs: u.inputs });
+  const r = P.simulate(u.cm, u.from.x, u.from.y, u.vx, u.vy, { pucks: u.pucks0, glass: u.glass0, balls: u.balls0, kick: u.mode === 'ult', inputs: u.inputs });
   const seq = room.turn ? room.turn.seq : 0;
-  if (!p) { room.pucks = r.pucks; room.glass = r.glass; noteArmed(room); broadcast(room, { type: 'shotEnd', seq, id: u.pid, pucks: r.pucks, glass: r.glass, gone: true }); turnResolved(room, 0); return; }
+  if (!p) { room.pucks = r.pucks; room.glass = r.glass; applyBalls(room, r.balls); noteArmed(room); broadcast(room, { type: 'shotEnd', seq, id: u.pid, pucks: r.pucks, glass: r.glass, balls: r.balls, gone: true }); turnResolved(room, 0); return; }
   const steerT = (u.inputs.length / 2) * P.DT;
   const rest = Math.max(0, r.time - steerT) * 1000;
   const gain = applyResult(room, p, u.from, r, rest, u.pucks0);
-  broadcast(room, { type: 'shotEnd', seq, id: p.id, n: u.inputs.length / 2, pucks: r.pucks, glass: r.glass, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
+  broadcast(room, { type: 'shotEnd', seq, id: p.id, n: u.inputs.length / 2, pucks: r.pucks, glass: r.glass, balls: r.balls, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
   // Zuschauer hängen beim Steuern etwas hinterher (Puffer + Zeitlupe) -> großzügiger Timeout
   turnResolved(room, rest, (P.modeCfg(u.mode).steerTime / P.modeCfg(u.mode).slowmo) * 1000 * 0.5);
 }

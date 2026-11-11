@@ -100,7 +100,10 @@
     "launchFactor": 0.5,
     "slowmo": 0.3,
     "steerTime": 6,
-    "steerAccel": 2600
+    "steerAccel": 2600,
+    "eat": true,
+    "grow": 2.5,
+    "maxScale": 3
   },
   "sling": {
     "shots": [

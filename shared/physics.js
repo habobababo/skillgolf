@@ -80,6 +80,9 @@
       slowmo: 0.3,         // Zeitlupen-Faktor während der Steuerung
       steerTime: 6,        // Spielsekunden, die der Ball gesteuert werden kann
       steerAccel: 2600,    // Steuer-Beschleunigung (px/s²)
+      eat: true,           // frisst alles auf seinem Weg (Pucks, Gegnerbälle, Wände, Blöcke, Bumper …) und wächst
+      grow: 2.5,           // Radius-Zuwachs pro Bissen (px)
+      maxScale: 3,         // höchstens so viel größer als normal
     },
     sling: {               // „SLING BALL“: Ball mit der Maus lenken, ohne Wegkick
       shots: [2, 4],       // bei diesen Schlagnummern
@@ -166,6 +169,7 @@
     c.ultimate.afterShots = Math.round(lim(c.ultimate.afterShots, 0, 50));
     c.ultimate.slowmo = lim(c.ultimate.slowmo, 0.05, 1);
     c.ultimate.launchFactor = lim(c.ultimate.launchFactor, 0.05, 3);
+    c.ultimate.eat = c.ultimate.eat !== false; c.ultimate.grow = lim(c.ultimate.grow, 0, 50); c.ultimate.maxScale = lim(c.ultimate.maxScale, 1, 10);
     c.sling.launchFactor = lim(c.sling.launchFactor, 0.05, 3);
     c.sling.slowmo = lim(c.sling.slowmo, 0.05, 1);
     c.sling.steerTime = lim(c.sling.steerTime, 0, 20);
@@ -283,7 +287,7 @@
    * balls: flaches Array [x1,y1,x2,y2,...]. Bälle, die den Schussstart überlappen (z. B. alle am Abschlag), werden ignoriert.
    * magPucks: Indizes magnetisierter Pucks – der Magnet wandert mit dem Puck mit.
    */
-  function withBalls(cm, balls, sx, sy, magnets, magPucks) {
+  function withBalls(cm, balls, sx, sy, magnets, magPucks, magBalls) {
     const mags = [];
     const minM = K.ballRadius * 2 + 0.5; // Magnet direkt am Schützen (z. B. beide am Abschlag) wirkt nicht
     if (magnets) for (let i = 0; i + 1 < magnets.length; i += 2) {
@@ -293,6 +297,7 @@
     }
     if (mags.length) cm = Object.assign({}, cm, { magnets: mags });
     if (magPucks && magPucks.length) cm = Object.assign({}, cm, { magPucks: magPucks.map(Number).filter((i) => Number.isInteger(i) && i >= 0) });
+    if (magBalls && magBalls.length) cm = Object.assign({}, cm, { magBalls: magBalls.map(Number) });
     if (!balls || !balls.length) return cm;
     const extra = [];
     const min = K.ballRadius * 2 + 0.5;
@@ -316,10 +321,14 @@
     const s = {
       x, y, vx, vy, t: 0, n: 0, slow: 0, done: false, allDone: false, result: null, sx: x, sy: y,
       nb: 0, bounce: false, hitV: 0, hit: null, pucks: pucks ? clonePucks(pucks) : [], inputs: opts.inputs || null, pevents: [],
-      glass: {},           // zerbrochene Glaswände: Objekt-Index -> true
+      glass: {},           // zerstörte Objekte (zerbrochenes Glas, vom Ultimate gefressen): Objekt-Index -> true
+      br: K.ballRadius,    // aktueller Ballradius (der Ultimate-Ball wächst beim Fressen)
+      eat: !!opts.kick && K.ultimate.eat,
     };
     if (opts.glass) for (const i of opts.glass) s.glass[i] = true;
-    if (opts.kick) ultimateKick(s);
+    // liegende Gegnerbälle: bewegliche Körper (am Ende der Puck-Liste, pb = Spieler-ID)
+    if (opts.balls) for (const b of ballBodies(opts.balls, x, y)) s.pucks.push(b);
+    if (opts.kick && !K.ultimate.eat) ultimateKick(s); // frisst der Ultimate, wird nichts weggesprengt – er holt sich alles selbst
     return s;
   }
   function clonePucks(p) {
@@ -344,6 +353,16 @@
     }
     return out;
   }
+  /** Gegnerbälle als Körper; Bälle, die den Schussstart überlappen (z. B. alle am Abschlag), werden ignoriert */
+  function ballBodies(balls, sx, sy) {
+    const out = [], rr = (2 * K.ballRadius) * (2 * K.ballRadius);
+    for (const b of balls || []) {
+      if (sx != null && (b.x - sx) * (b.x - sx) + (b.y - sy) * (b.y - sy) < rr) continue;
+      out.push({ x: b.x, y: b.y, vx: 0, vy: 0, r: K.ballRadius, m: K.pucks.ballMass, c: 'ball', f: null, alive: true, pb: b.id, ox: b.x, oy: b.y });
+    }
+    return out;
+  }
+  function grow(s) { s.br = Math.min(K.ballRadius * K.ultimate.maxScale, s.br + K.ultimate.grow); }
   /** Bombe scharf machen (Berührung) */
   function arm(s, q) { if (q.bomb && !q.armed && q.alive) { q.armed = true; s.pevents.push({ type: 'arm', x: q.x, y: q.y }); } }
   function touching(a, b, ra, rb) { const dx = b.x - a.x, dy = b.y - a.y, rr = ra + rb + 0.5; return dx * dx + dy * dy < rr * rr; }
@@ -387,7 +406,7 @@
   function collideStatic(cm, b, r, rec, st) {
     for (let i = 0; i < cm.solids.length; i++) {
       const o = cm.solids[i];
-      if (o.glass && st && st.glass[o.src]) continue; // schon zerbrochen
+      if (st && o.src != null && st.glass[o.src]) continue; // zerbrochen / gefressen
       let nx = 0, ny = 0, pen = 0;
       if (o.kind === 'seg') {
         const dx = o.bx - o.ax, dy = o.by - o.ay;
@@ -424,6 +443,12 @@
           if (bt < m) { m = bt; nx = 0; ny = 1; }
           pen = m + r;
         }
+      }
+      if (st && st.eat && b === st && o.src != null) {
+        // Ultimate-Ball frisst das Hindernis (bleibt bis Bahnende weg) und wächst
+        st.glass[o.src] = true; grow(st);
+        st.pevents.push({ type: 'eat', src: o.src, x: b.x - nx * r, y: b.y - ny * r, big: true });
+        continue;
       }
       if (o.glass && st) {
         // Glas: zerbricht, wenn der Körper schnell genug hineinfliegt (zählt nur das Tempo auf das Glas zu)
@@ -538,6 +563,15 @@
         const md = Math.sqrt(md2), u = 1 - md / F.radius, f = F.strength * u * u * (q.f === 'repel' ? -1 : 1);
         ex += mx / md * f; ey += my / md * f;
       }
+      if (cm.magBalls) { // magnetisierte Gegnerbälle ziehen an, auch wenn sie angestoßen wurden
+        const MR = K.magnet.radius, MS = K.magnet.strength;
+        for (let i = 0; i < s.pucks.length; i++) {
+          const q = s.pucks[i];
+          if (q.pb == null || !q.alive || cm.magBalls.indexOf(q.pb) < 0) continue;
+          const mx = q.x - s.x, my = q.y - s.y, md = Math.sqrt(mx * mx + my * my);
+          if (md < MR && md > 1e-6) { const f = MS * (1 - md / MR); ex += mx / md * f; ey += my / md * f; }
+        }
+      }
       if (cm.magPucks) { // magnetisierte Pucks ziehen den Ball an, auch während sie selbst rollen
         const MR = K.magnet.radius, MS = K.magnet.strength;
         for (let i = 0; i < cm.magPucks.length; i++) {
@@ -565,7 +599,7 @@
     const sdt = DT / n;
     const ballSolid = s.result !== 'sunk' && s.result !== 'water';
     for (let k = 0; k < n; k++) {
-      if (!s.done) { s.x += s.vx * sdt; s.y += s.vy * sdt; collideStatic(cm, s, BR, true, s); }
+      if (!s.done) { s.x += s.vx * sdt; s.y += s.vy * sdt; collideStatic(cm, s, s.br, true, s); }
       for (let i = 0; i < s.pucks.length; i++) {
         const q = s.pucks[i];
         if (!q.alive || (q.vx === 0 && q.vy === 0)) continue;
@@ -576,8 +610,16 @@
         for (let i = 0; i < s.pucks.length; i++) {
           const q = s.pucks[i];
           if (!q.alive) continue;
-          if (q.bomb && !q.armed && !s.done && touching(s, q, BR, q.r)) arm(s, q);
-          const imp = collidePair(s, s.done ? 0 : PK.ballMass, q, q.m, PK.bounce, BR, q.r);
+          if (s.eat && !s.done && touching(s, q, s.br, q.r)) {
+            // Ultimate frisst Pucks, Bomben und Gegnerbälle (die landen wieder am Abschlag)
+            q.alive = false; q.vx = q.vy = 0;
+            if (q.pb != null) { q.ox = cm.start.x; q.oy = cm.start.y; q.eaten = true; }
+            grow(s);
+            s.pevents.push({ type: 'eat', x: q.x, y: q.y, c: q.c, pb: q.pb });
+            continue;
+          }
+          if (q.bomb && !q.armed && !s.done && touching(s, q, s.br, q.r)) arm(s, q);
+          const imp = collidePair(s, s.done ? 0 : PK.ballMass, q, q.m, PK.bounce, s.br, q.r);
           if (imp > 40 && !s.done) { s.bounce = true; if (imp > s.hitV) { s.hitV = imp; s.hit = { kind: 'puck', c: q.c, m: q.m }; } }
         }
       }
@@ -663,7 +705,7 @@
     if (ppaths) for (let i = 0; i < s.pucks.length; i++) { const q = s.pucks[i]; ppaths[i].push(q.x, q.y); }
     return {
       x: s.x, y: s.y, result: s.done ? s.result : 'cut', steps: s.n, time: s.t, ballTime: ballDoneAt < 0 ? s.t : ballDoneAt,
-      points, bounces, ppaths, pucks: exportPucks(s), glass: exportGlass(s), nb: s.nb,
+      points, bounces, ppaths, pucks: exportPucks(s), balls: blastBalls(s), glass: exportGlass(s), nb: s.nb,
     };
   }
 
@@ -752,7 +794,7 @@
     const out = [];
     for (const q of s.pucks) {
       if (q.pb == null) continue;
-      out.push(q.alive ? { id: q.pb, x: q.x, y: q.y } : { id: q.pb, x: q.ox, y: q.oy, back: true });
+      out.push(q.alive ? { id: q.pb, x: q.x, y: q.y } : { id: q.pb, x: q.ox, y: q.oy, back: true, eaten: !!q.eaten });
     }
     return out;
   }
@@ -846,7 +888,7 @@
   const api = {
     DT, DEFAULTS, DEFAULT_CONFIG,
     configure, compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap, spawnPucks, exportPucks, exportGlass, modeCfg, shotMode,
-    holePoints, shotBonus, dsin, dcos, blastState, blast, blastBalls, launchState, launch,
+    holePoints, shotBonus, dsin, dcos, blastState, blast, blastBalls, launchState, launch, ballBodies,
   };
   // Live-Werte (ändern sich mit configure)
   Object.defineProperties(api, {

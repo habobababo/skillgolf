@@ -84,7 +84,7 @@
   }
 
   // ------------------------------------------------------------ statische Ebene (gecacht)
-  function drawStatic(ctx, map, k) {
+  function drawStatic(ctx, map, k, broken) {
     const W = map.width, H = map.height, objs = map.objects || [];
     ctx.save();
     // Boden mit Leuchtrand
@@ -144,8 +144,10 @@
     if (map.start) {
       ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.beginPath(); ctx.arc(map.start.x, map.start.y, 22, 0, 7); ctx.fill();
     }
-    // Feste Objekte
-    for (const o of objs) {
+    // Feste Objekte (vom Ultimate gefressene nicht mehr)
+    for (let oi = 0; oi < objs.length; oi++) {
+      const o = objs[oi];
+      if (broken && broken[oi]) continue;
       if (o.type === 'block') {
         const r = rectN(o);
         ctx.fillStyle = '#0e0d2b'; ctx.fillRect(r.x, r.y, r.w, r.h);
@@ -241,6 +243,7 @@
           ctx.beginPath(); ctx.moveTo(x - 6 * a, y); ctx.lineTo(x + 6 * a, y); ctx.moveTo(x, y - 6 * a); ctx.lineTo(x, y + 6 * a); ctx.stroke();
         }
       } else if (o.type === 'band') {
+        if (broken && broken[i]) continue;
         // Gummiband: schwingt nach einem Treffer
         const fl = fx ? fx.flashOf(i) : 0;
         const dx = o.x2 - o.x1, dy = o.y2 - o.y1, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
@@ -258,6 +261,7 @@
         }
         ctx.restore();
       } else if (o.type === 'bumper') {
+        if (broken && broken[i]) continue;
         const fl = fx ? fx.flashOf(i) : 0;
         const r = (o.r || 24) * (1 + fl * 0.18);
         const breathe = 0.5 + 0.5 * Math.sin(t * 3 + i);
@@ -330,22 +334,32 @@
     const v = opts.view;
     if (v && opts.cache) {
       const c = v.canvas;
-      if (!cache || cache.map !== map || cache.w !== c.width || cache.h !== c.height || cache.scale !== v.scale) {
+      const bk = opts.glass ? Object.keys(opts.glass).join(',') : '';
+      if (!cache || cache.map !== map || cache.w !== c.width || cache.h !== c.height || cache.scale !== v.scale || cache.bk !== bk) {
         const oc = document.createElement('canvas'); oc.width = c.width; oc.height = c.height;
         const octx = oc.getContext('2d');
         octx.setTransform(v.scale, 0, 0, v.scale, v.ox, v.oy);
-        drawStatic(octx, map, v.scale);
-        cache = { map, w: c.width, h: c.height, scale: v.scale, c: oc };
+        drawStatic(octx, map, v.scale, opts.glass);
+        cache = { map, w: c.width, h: c.height, scale: v.scale, c: oc, bk };
       }
       ctx.save(); ctx.setTransform(1, 0, 0, 1, v.sx, v.sy); ctx.drawImage(cache.c, 0, 0); ctx.restore();
-    } else drawStatic(ctx, map, v ? v.scale : 1);
+    } else drawStatic(ctx, map, v ? v.scale : 1, opts.glass);
     drawDynamic(ctx, map, t, opts.fx, opts.glass);
   }
 
   // ------------------------------------------------------------ Bälle & Schweife
-  function drawBall(ctx, x, y, color, label, alpha, img, rot) {
+  function drawBall(ctx, x, y, color, label, alpha, img, rot, scale) {
     const hasImg = img && img.complete && img.naturalWidth > 0;
-    const r = P.BALL_R * (hasImg ? 2.2 : 1);
+    const r = P.BALL_R * (hasImg ? 2.2 : 1) * (scale || 1);
+    if (scale > 1.01) { // gefräßiger Ultimate-Ball: pulsierender Schlund
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const tt = performance.now() / 1000;
+      for (let i = 0; i < 3; i++) {
+        ctx.strokeStyle = i % 2 ? '#ff2e88' : '#ffe03a'; ctx.globalAlpha = 0.5 - i * 0.12; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(x, y, r + 6 + i * 6 + Math.sin(tt * 14 + i) * 2, tt * 6 + i, tt * 6 + i + 4.2); ctx.stroke();
+      }
+      ctx.restore();
+    }
     ctx.save(); ctx.globalAlpha = alpha == null ? 1 : alpha;
     ctx.globalCompositeOperation = 'lighter';
     const g = ctx.createRadialGradient(x, y, r * 0.4, x, y, r * 3.2);
@@ -787,6 +801,7 @@
       if (this.hum) { const t = this.ac.currentTime; this.hum.g.gain.setValueAtTime(0.004, t); this.hum.g.gain.setTargetAtTime(0.035, t + 0.05, 0.03); }
     }
     band(v) { const vol = clamp(v / 1400, 0.08, 0.35); this.tone(140, 0.28, 'sine', vol, 420); this.tone(70, 0.3, 'triangle', vol * 0.6, 200); }
+    eat(big) { this.noise(big ? 0.35 : 0.18, big ? 0.4 : 0.22, big ? 900 : 1600, 120); this.tone(big ? 90 : 160, big ? 0.3 : 0.15, 'square', 0.14, 40); }
     launch() { this.tone(220, 0.35, 'sine', 0.2, 900); this.tone(110, 0.4, 'triangle', 0.12, 60); this.noise(0.2, 0.08, 2500, 300); }
     arm() { this.tone(1200, 0.06, 'square', 0.08); this.tone(1600, 0.06, 'square', 0.08, null, 0.08); this.noise(0.3, 0.06, 6000, 3000, 0, 'highpass'); }
     fuseTick(urgent) { this.tone(urgent ? 1500 : 1000, 0.05, 'square', urgent ? 0.1 : 0.06); }
@@ -990,7 +1005,7 @@
       this.local = !!opts.local;
       this.inputs = []; this.sent = 0; this.ended = !this.ult; this.endSent = false;
       this.steerSteps = this.ult ? Math.round(this.mc.steerTime / P.DT) : 0;
-      this.s = P.createState(from.x, from.y, vx, vy, opts.pucks || [], { kick: this.mode === 'ult', inputs: this.ult ? this.inputs : null, glass: opts.glass });
+      this.s = P.createState(from.x, from.y, vx, vy, opts.pucks || [], { kick: this.mode === 'ult', inputs: this.ult ? this.inputs : null, glass: opts.glass, balls: opts.balls });
       this.trail = [from.x, from.y]; this.fade = 0; this.events = []; this.zmask = this.zoneMask(); this.timeScale = 1;
       this.px = from.x; this.py = from.y; this.pp = this.s.pucks.map((q) => [q.x, q.y]);
       this.buffering = this.ult && !this.local; // Mitspieler: erst etwas Eingaben puffern
@@ -1063,6 +1078,17 @@
     get ballDone() { return this.s.done; }
     /** Zwischenstand für flüssiges Zeichnen (auch in Zeitlupe) */
     get alpha() { return this.s.allDone ? 1 : Math.max(0, Math.min(1, this.acc / P.DT)); }
+    /** Position eines angestoßenen Gegnerballs (oder null, wenn er nicht Teil dieses Schlags ist) */
+    ballPos(id) {
+      for (let i = 0; i < this.s.pucks.length; i++) {
+        const q = this.s.pucks[i];
+        if (q.pb !== id) continue;
+        if (!q.alive) return this.done ? { x: q.ox, y: q.oy } : null;
+        const a = this.alpha;
+        return { x: this.pp[i][0] + (q.x - this.pp[i][0]) * a, y: this.pp[i][1] + (q.y - this.pp[i][1]) * a };
+      }
+      return null;
+    }
     get pucks() {
       const a = this.alpha;
       if (a >= 1) return this.s.pucks;
@@ -1157,6 +1183,14 @@
         fx.spark(e.x, e.y, '#5aa0ff', 30, 260, { life: 0.7, kind: 'dot', drag: 4, size: 2.2 });
         fx.ring(e.x, e.y, PUCK_COL[e.c] || '#2f7bff', 40, 0.6, 3);
         if (sfx) sfx.splash();
+      } else if (e.type === 'eat') {
+        const c = e.big ? '#ff2e88' : (PUCK_COL[e.c] || '#ffe03a');
+        fx.spark(e.x, e.y, c, e.big ? 40 : 22, e.big ? 520 : 360, { life: 0.6 });
+        fx.spark(e.x, e.y, '#ffffff', 10, 300, { life: 0.3 });
+        fx.ring(e.x, e.y, c, e.big ? 60 : 36, 0.35, 5);
+        fx.text(e.x, e.y - 24, e.pb != null ? 'GEFRESSEN!' : e.big ? 'MAMPF!' : 'NOM', e.big ? '#ff2e88' : '#ffe03a', e.big ? 26 : 18);
+        fx.shake(e.big ? 7 : 3);
+        if (sfx) sfx.eat(e.big);
       } else if (e.type === 'launch') {
         fx.spark(e.x, e.y, '#c36bff', 24, 380, { life: 0.5 }); fx.ring(e.x, e.y, '#c36bff', 50, 0.4, 4);
         if (sfx) sfx.launch();
