@@ -399,20 +399,24 @@
   const ctrl = new S.ShotController(canvas, view, {
     fx, sfx, color: () => '#ffe03a', hoverPreview: true,
     canShoot: () => !!testing && !testing.anim && !testing.blast && !testing.done,
-    getPucks: () => (testing ? { list: testing.pucks, ver: testing.pver, glass: testing.glass, noArm: !P.canArm(testing.shots + 1), gadgets: testing.gadgets, ghost: testing.ghostNext } : null),
+    getPucks: () => (testing ? { list: testing.pucks, ver: testing.pver, glass: testing.glass, noArm: !P.canArm(testing.shots + 1), gadgets: testing.gadgets, ghost: testFlags().ghost } : null),
     shotMode: () => testMode(),
     onShoot: (angle, power) => {
       const mode = testMode();
       const v = P.shotVelocity(angle, power, mode);
       if (mode === 'ult') testing.ultUsed = true;
-      if (mode === 'sling') testing.slingNext = false;
-      const ghost = !!testing.ghostNext; testing.ghostNext = false;
+      const ghost = testFlags().ghost;
+      if (mode !== 'ult' && testing.gadgetQ.length) testing.gadgetQ.shift();
       testing.shots++;
       testing.from = { ...testing.ball };
       testing.anim = new S.BallAnim(testing.cm, testing.ball, v.vx, v.vy, null, null, { pucks: testing.pucks, glass: testing.glass, noArm: !P.canArm(testing.shots), ghost, gadgets: testing.gadgets, mode, local: true });
     },
   });
-  function testMode() { return testing && !testing.done ? P.shotMode(testing.shots + 1, testing.ultUsed, testing.slingNext) : null; }
+  function testFlags() {
+    const q = testing ? testing.gadgetQ : [], ult = testing && P.shotMode(testing.shots + 1, testing.ultUsed, false) === 'ult';
+    return { sling: !ult && q[0] === 'sling', ghost: !ult && q[0] === 'ghost' };
+  }
+  function testMode() { return testing && !testing.done ? P.shotMode(testing.shots + 1, testing.ultUsed, testFlags().sling) : null; }
   let pullHeld = false; // Ultimate: linke Maustaste = Zugstrahl zum Zeiger
   window.addEventListener('pointerdown', (e) => { if (e.button === 0) pullHeld = true; });
   window.addEventListener('pointerup', (e) => { if (e.button === 0) pullHeld = false; });
@@ -439,7 +443,7 @@
     sel = null; renderSelProps();
     const m = P.sanitizeMap(map);
     const tcm = P.compile(m);
-    testing = { cm: tcm, ball: { ...m.start }, shots: 0, anim: null, done: false, pucks: P.spawnPucks(tcm, (Math.random() * 2 ** 31) | 0), pver: 0, ultUsed: false, glass: [], fuse: {}, blast: null, gadgets: [], slingNext: false, ghostNext: false };
+    testing = { cm: tcm, ball: { ...m.start }, shots: 0, anim: null, done: false, pucks: P.spawnPucks(tcm, (Math.random() * 2 ** 31) | 0), pver: 0, ultUsed: false, glass: [], fuse: {}, blast: null, gadgets: [], gadgetQ: [] };
     testing.gadgets = P.spawnGadgets(tcm, (Math.random() * 2 ** 31) | 0, testing.pucks, [testing.ball]);
     $('bTest').textContent = '■ Test beenden';
     $('testInfo').classList.remove('hidden');
@@ -462,14 +466,15 @@
       if (T.anim.done) {
         const r = T.anim.s.result;
         T.pucks = P.exportPucks(T.anim.s); T.glass = P.exportGlass(T.anim.s); T.pver++;
-        for (const id of T.anim.s.picked) { const g = T.gadgets.find((x) => x.id === id); if (g && g.type === 'sling') T.slingNext = true; if (g && g.type === 'ghost') T.ghostNext = true; }
+        for (const id of T.anim.s.picked) { const g = T.gadgets.find((x) => x.id === id); if (g) T.gadgetQ.push(g.type); }
+        T.gadgets = T.gadgets.filter((g) => !T.anim.s.picked.includes(g.id));
         T.lastTrail = T.anim.trail; T.trailFade = 0;
         T.anim = null;
         if (r === 'water') { T.ball = T.from; toast('💦 Wasser – zurück'); }
         armFuses(T);
         // Gadgets wie im Spiel: zu jedem Schlag neu verteilt
-        if (T.slingNext) toast('🌀 Nächster Schlag: SLING'); if (T.ghostNext) toast('👻 Nächster Schlag: GHOST');
-        T.gadgets = P.spawnGadgets(T.cm, (Math.random() * 2 ** 31) | 0, T.pucks, [T.ball]);
+        if (T.gadgetQ.length) toast('Gadgets: ' + T.gadgetQ.map((g) => (g === 'ghost' ? '👻' : '🌀')).join(' → '));
+        T.gadgets = P.spawnGadgets(T.cm, (Math.random() * 2 ** 31) | 0, T.pucks, [T.ball], T.gadgets);
         if (r === 'sunk') { T.done = true; toast(`⛳ Eingelocht mit ${T.shots} Schlag/Schlägen (Par ${map.par})`); }
         else if (T.shots >= P.MAX_SHOTS) { T.done = true; toast('Keine Schläge mehr'); }
         const nm = testMode();

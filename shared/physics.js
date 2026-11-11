@@ -30,8 +30,9 @@
       radius: 180,         // Reichweite der Anziehung (px), 0 = aus
       strength: 700,       // Anziehung im Zentrum (px/s²), nimmt nach außen quadratisch ab
       puckFactor: 1,       // Multiplikator für Pucks (schwere Pucks spüren zusätzlich weniger)
+      alwaysPull: true,    // Ball im Wirkungsbereich wird immer hineingezogen (Sog stärker als die Bodenbremsung)
     },
-    maxShotTime: 40,       // Sekunden, nach denen ein Schlag hart beendet wird
+    maxShotTime: 20,       // Sekunden, nach denen ein Schlag hart beendet wird (gegen Endlos-Kreisen)
     surfaces: {            // decel = konstante Bremsung (px/s²), drag = geschwindigkeitsabhängige Bremsung
       grass: { decel: 220, drag: 0.32 },
       sand: { decel: 1250, drag: 2.6 },
@@ -48,6 +49,7 @@
     },
     gadgets: {             // Gadgets zum Einsammeln: erscheinen zu jedem Zug neu und verschwinden wieder
       radius: 16,
+      life: [2, 4],        // so viele Züge bleibt ein Gadget liegen (zufällig dazwischen)
       sling: { min: 1, max: 2 },   // nächster Schlag ist ein Sling-Ball
       ghost: { min: 1, max: 2 },   // nächster Schlag als Geist: durch Pucks/Bälle, immun gegen alle Effekte
     },
@@ -118,6 +120,7 @@
       maxPuckBonus: 5,     // höchstens so viele Puck-Bonuspunkte pro Bahn
     },
     magnet: {              // „MAGNETISIEREN“: wartende Spieler ziehen den Ball des Schützen an
+      damp: 2.5,           // Dämpfung im Magnetfeld: Ball kommt zur Ruhe statt endlos zu kreisen
       usesPerHole: 2,      // Ladungen pro Spieler und Bahn
       strength: 3200,      // Anziehung direkt am Magneten (px/s²), nimmt nach außen ab
       radius: 420,         // Reichweite
@@ -185,6 +188,10 @@
     for (const k of ['attract', 'repel']) { c.pucks[k].radius = lim(c.pucks[k].radius, 10, 3000); c.pucks[k].strength = lim(c.pucks[k].strength, 0, 20000); }
     c.gravityPuck.perHole = Math.round(lim(c.gravityPuck.perHole, 0, 10)); c.gravityPuck.speed = lim(c.gravityPuck.speed, 0.05, 3);
     c.gadgets.radius = lim(c.gadgets.radius, 6, 60);
+    if (!Array.isArray(c.gadgets.life)) c.gadgets.life = [2, 4];
+    c.gadgets.life = [Math.round(lim(c.gadgets.life[0], 1, 50)), Math.round(lim(c.gadgets.life[1], 1, 50))];
+    if (c.gadgets.life[1] < c.gadgets.life[0]) c.gadgets.life[1] = c.gadgets.life[0];
+    c.magnet.damp = lim(c.magnet.damp, 0, 50); c.blackHole.alwaysPull = c.blackHole.alwaysPull !== false;
     for (const k of ['sling', 'ghost']) { const g = c.gadgets[k]; g.min = Math.round(lim(g.min, 0, 10)); g.max = Math.round(lim(g.max, g.min, 10)); }
     c.glass.breakSpeed = lim(c.glass.breakSpeed, 0, 30000); c.glass.keep = lim(c.glass.keep, 0, 1); c.glass.bounce = lim(c.glass.bounce, 0, 2);
     c.bounce.band = lim(c.bounce.band, 0, 3); c.bounce.bandKick = lim(c.bounce.bandKick, 0, 3000);
@@ -550,6 +557,30 @@
     return true;
   }
 
+  /** Bremsung des Bodens an einer Stelle (für den Mindest-Sog des schwarzen Lochs) */
+  function surfDecel(cm, x, y, ghost) {
+    const S = K.surfaces;
+    if (ghost) return S.grass.decel;
+    let d = S.grass.decel;
+    for (let i = 0; i < cm.zones.length; i++) {
+      const z = cm.zones[i];
+      if (!inRect(z, x, y)) continue;
+      if (z.kind === 'sand') d = S.sand.decel; else if (z.kind === 'ice') d = S.ice.decel;
+    }
+    return d;
+  }
+  /**
+   * Magnetkraft auf den Ball: zieht an, dämpft die Geschwindigkeit im Feld (kein Endlos-Kreisen)
+   * und hört kurz vor der Berührung auf zu ziehen (sonst drückt er ewig gegen den Magneten).
+   */
+  function magForce(s, mx, my, md, MR, MS, contact) {
+    if (md >= MR || md < 1e-6) return [0, 0];
+    const u = 1 - md / MR, dmp = K.magnet.damp * u;
+    let fx = -s.vx * dmp, fy = -s.vy * dmp;
+    if (md > contact + 3) { const f = MS * u; fx += mx / md * f; fy += my / md * f; }
+    return [fx, fy];
+  }
+
   /** Anziehung des schwarzen Lochs (px/s²) auf einen Körper -> [ax, ay] */
   function holeGravity(cm, x, y, k) {
     const BH = K.blackHole, R = BH.radius;
@@ -574,14 +605,21 @@
       let ex = 0, ey = 0;
       const hx = cm.hole.x - s.x, hy = cm.hole.y - s.y, hd = Math.sqrt(hx * hx + hy * hy);
       if (hd < HOLE_R && hd > 1e-6) { ex += (hx / hd) * K.holePull; ey += (hy / hd) * K.holePull; }
-      const g = s.ghost ? null : holeGravity(cm, s.x, s.y, 1);
-      if (g) { ex += g[0]; ey += g[1]; }
+      const g = holeGravity(cm, s.x, s.y, 1); // das schwarze Loch zieht immer – auch den Geist
+      if (g) {
+        if (K.blackHole.alwaysPull) {
+          // mindestens etwas stärker als die Bremsung des Bodens -> Ball bleibt nie im Sog liegen
+          const gl = Math.sqrt(g[0] * g[0] + g[1] * g[1]), need = surfDecel(cm, s.x, s.y, s.ghost) * 1.5 + 60;
+          if (gl > 1e-9 && gl < need) { g[0] *= need / gl; g[1] *= need / gl; }
+        }
+        ex += g[0]; ey += g[1];
+      }
       if (s.inputs && s.n * 2 + 1 < s.inputs.length) { ex += s.inputs[s.n * 2]; ey += s.inputs[s.n * 2 + 1]; }
       if (cm.magnets && !s.ghost) {
         const MR = K.magnet.radius, MS = K.magnet.strength;
         for (let i = 0; i < cm.magnets.length; i++) {
           const mg = cm.magnets[i], mx = mg.x - s.x, my = mg.y - s.y, md = Math.sqrt(mx * mx + my * my);
-          if (md < MR && md > 1e-6) { const f = MS * (1 - md / MR); ex += mx / md * f; ey += my / md * f; }
+          const mf = magForce(s, mx, my, md, MR, MS, K.ballRadius * 2); ex += mf[0]; ey += mf[1];
         }
       }
       // Feld-Pucks: Gravitation (zieht an) bzw. Abstoßung (drückt weg)
@@ -600,7 +638,7 @@
           const q = s.pucks[i];
           if (q.pb == null || !q.alive || cm.magBalls.indexOf(q.pb) < 0) continue;
           const mx = q.x - s.x, my = q.y - s.y, md = Math.sqrt(mx * mx + my * my);
-          if (md < MR && md > 1e-6) { const f = MS * (1 - md / MR); ex += mx / md * f; ey += my / md * f; }
+          const mf = magForce(s, mx, my, md, MR, MS, s.br + q.r); ex += mf[0]; ey += mf[1];
         }
       }
       if (cm.magPucks && !s.ghost) { // magnetisierte Pucks ziehen den Ball an, auch während sie selbst rollen
@@ -609,7 +647,7 @@
           const q = s.pucks[cm.magPucks[i]];
           if (!q || !q.alive) continue;
           const mx = q.x - s.x, my = q.y - s.y, md = Math.sqrt(mx * mx + my * my);
-          if (md < MR && md > 1e-6) { const f = MS * (1 - md / MR); ex += mx / md * f; ey += my / md * f; }
+          const mf = magForce(s, mx, my, md, MR, MS, s.br + q.r); ex += mf[0]; ey += mf[1];
         }
       }
       if (!applyForces(cm, s, 1, ex, ey, s.ghost)) { s.done = true; s.result = 'water'; }
@@ -620,7 +658,12 @@
       const q = s.pucks[i];
       if (!q.alive) continue;
       const g = holeGravity(cm, q.x, q.y, puckPull(q));
-      if (!applyForces(cm, q, PK.friction, g ? g[0] : 0, g ? g[1] : 0)) { q.alive = false; q.vx = q.vy = 0; s.pevents.push({ type: 'sink', x: q.x, y: q.y, c: q.c }); continue; }
+      if (!applyForces(cm, q, PK.friction, g ? g[0] : 0, g ? g[1] : 0)) {
+        q.alive = false; q.vx = q.vy = 0;
+        if (q.pb != null) { q.ox = cm.start.x; q.oy = cm.start.y; q.drowned = true; } // ins Wasser geschleuderter Spielerball -> zurück zum Abschlag
+        s.pevents.push({ type: 'sink', x: q.x, y: q.y, c: q.c, pb: q.pb });
+        continue;
+      }
       if (q._sp < STOP_SPEED && q._a2 < q._dec * q._dec) { q.vx = 0; q.vy = 0; q._sp = 0; }
       if (q._sp > maxSp) maxSp = q._sp;
     }
@@ -853,7 +896,7 @@
     const out = [];
     for (const q of s.pucks) {
       if (q.pb == null) continue;
-      out.push(q.alive ? { id: q.pb, x: q.x, y: q.y } : { id: q.pb, x: q.ox, y: q.oy, back: true, eaten: !!q.eaten });
+      out.push(q.alive ? { id: q.pb, x: q.x, y: q.y } : { id: q.pb, x: q.ox, y: q.oy, back: true, eaten: !!q.eaten, drowned: !!q.drowned });
     }
     return out;
   }
@@ -923,12 +966,14 @@
    * Gadgets für einen Zug verteilen: von jeder Sorte min..max Stück, nicht in Wänden/Wasser,
    * nicht am Loch, nicht auf Pucks oder Bällen. balls: [{x,y}]
    */
-  function spawnGadgets(cm, seed, pucks, balls) {
-    const R = rng(seed >>> 0), G = K.gadgets, r = G.radius, out = [];
-    let id = 1;
+  function spawnGadgets(cm, seed, pucks, balls, existing) {
+    const R = rng(seed >>> 0), G = K.gadgets, r = G.radius;
+    // vorhandene Gadgets bleiben liegen, bis ihre Lebensdauer (in Zügen) abläuft
+    const out = (existing || []).map((g) => ({ ...g, ttl: (g.ttl || 1) - 1 })).filter((g) => g.ttl > 0);
+    let id = out.reduce((m, g) => Math.max(m, g.id), 0) + 1;
     for (const type of ['sling', 'ghost']) {
       const n = G[type].min + Math.floor(R() * (G[type].max - G[type].min + 1));
-      for (let k = 0, tries = 0; k < n && tries < 3000; tries++) {
+      for (let k = out.filter((g) => g.type === type).length, tries = 0; k < n && tries < 3000; tries++) {
         const x = r + 30 + R() * (cm.W - 2 * r - 60), y = r + 30 + R() * (cm.H - 2 * r - 60);
         if ((x - cm.hole.x) ** 2 + (y - cm.hole.y) ** 2 < 140 * 140) continue;
         if (cm.zones.some((z) => z.kind === 'water' && x > z.x1 - r && x < z.x2 + r && y > z.y1 - r && y < z.y2 + r)) continue;
@@ -938,7 +983,7 @@
         const t = { x, y, vx: 0, vy: 0, hitV: 0 };
         collideStatic(cm, t, r + 6, false);
         if (t.x !== x || t.y !== y) continue;
-        out.push({ id: id++, type, x: Math.round(x), y: Math.round(y) });
+        out.push({ id: id++, type, x: Math.round(x), y: Math.round(y), ttl: G.life[0] + Math.floor(R() * (G.life[1] - G.life[0] + 1)) });
         k++;
       }
     }

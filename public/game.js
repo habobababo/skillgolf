@@ -135,6 +135,7 @@
       const q = room && room.players.find((x) => x.id === b.id);
       if (!q || !q.ball || q.sunk) continue;
       q.ball = { x: b.x, y: b.y };
+      if (b.drowned) toast(b.id === myId ? '💦 Du wurdest ins Wasser geschleudert – zurück zum Abschlag!' : `💦 ${q.name} wurde ins Wasser geschleudert – zurück zum Abschlag`, b.id === myId);
       if (b.eaten) toast(b.id === myId ? '😱 Dein Ball wurde GEFRESSEN – zurück zum Abschlag!' : `😋 ${q.name}s Ball wurde gefressen`, b.id === myId);
     }
   }
@@ -156,9 +157,10 @@
     if (m.picked && m.picked.length && room.gadgets) room.gadgets = room.gadgets.filter((g) => !m.picked.includes(g.id));
     if (m.slingNext != null) p.slingNext = m.slingNext;
     if (m.ghostNext != null) p.ghostNext = m.ghostNext;
+    if (m.gadgetQ) p.gadgetQ = m.gadgetQ;
     if (m.picked && m.picked.length && p.id === myId) {
-      if (m.slingNext) toast('🌀 SLING eingesammelt – dein nächster Schlag ist lenkbar!', true);
-      if (m.ghostNext) toast('👻 GHOST eingesammelt – nächster Schlag geht durch alles!', true);
+      const q = (p.gadgetQ || []).map((g) => (g === 'ghost' ? '👻' : '🌀')).join(' → ');
+      toast(`Gadget eingesammelt! Deine nächsten Schläge: ${q}`, true);
     }
     if (m.score != null) p.scores[room.holeIndex] = m.score;
     if (!p.points) p.points = [];
@@ -591,8 +593,7 @@
       if (isTurn && !(p.done && !rolling)) st = (rolling ? 'rollt …' : '▶ <b>am Zug</b>') + ` · Schlag ${p.shots + (rolling ? 0 : 1)}/${P.MAX_SHOTS}`;
       if (room.phase === 'playing' && !p.done && p.bonus) st += ` · <b style="color:#39ff8a">+${p.bonus} Bonus</b>`;
       if (p.magnet) st += ` · <b style="color:#ffe03a">🧲 ${p.magnetPuck != null ? 'Puck-Magnet' : 'Magnet'}</b>`;
-      if (!p.done && p.slingNext) st += ' · <b style="color:#00eaff">🌀 Sling</b>';
-      if (!p.done && p.ghostNext) st += ' · <b style="color:#e8e4ff">👻 Ghost</b>';
+      if (!p.done && p.gadgetQ && p.gadgetQ.length) st += ` · <b title="Gadgets der Reihe nach" style="color:#00eaff">${p.gadgetQ.map((g) => (g === 'ghost' ? '👻' : '🌀')).join('')}</b>`;
       else if (room.phase === 'playing' && !p.done && P.config.magnet.usesPerHole > 0) st += ` · 🧲${p.magnetLeft || 0}`;
       h += `<div class="bp ${p.id === myId ? 'me' : ''} ${isTurn ? 'turn' : ''}"><div class="top">${playerDot(p)}<span class="nm">${esc(p.name)}</span>${p.id === room.hostId ? '👑' : ''}<span class="tot">${total(p)}</span></div><div class="st">${st}</div></div>`;
     }
