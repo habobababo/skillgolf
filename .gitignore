@@ -4,3 +4,4 @@ maps/custom/*.json
 config.json
 update.json
 server.log
+.npm-cache/

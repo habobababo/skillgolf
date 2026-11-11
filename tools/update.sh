@@ -97,6 +97,8 @@ NEWLOCK="$(git rev-parse HEAD:package-lock.json 2>/dev/null || echo none)"
 
 if [ "$OLDLOCK" != "$NEWLOCK" ] || [ ! -d node_modules ]; then
   echo "Installiere Abhängigkeiten …"
+  # Server-Benutzer wie www-data haben oft kein beschreibbares Home -> npm-Cache im Projektordner
+  [ -w "${HOME:-/nonexistent}" ] || export npm_config_cache="$ROOT/.npm-cache"
   npm ci --omit=dev --no-audit --no-fund 2>&1 | tail -3 || fail "npm ci fehlgeschlagen."
 fi
 
