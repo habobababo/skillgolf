@@ -67,7 +67,7 @@
         break;
       case 'shot': onShot(m); break;
       case 'shotEnd': onShotEnd(m); break;
-      case 'turn': onTurn(m.turn); break;
+      case 'turn': if (m.pucks) setPucks(m.pucks); onTurn(m.turn); break;
       case 'blast': onBlast(m); break;
       case 'gpuck': onGPuck(m); break;
       case 'magnet': onMagnet(m.id, m.puck); break;
@@ -115,7 +115,7 @@
     const mode = m.mode || (m.ult ? 'ult' : null);
     const ult = !!mode;
     const a = new S.BallAnim(P.withBalls(cm, m.others || [], m.from.x, m.from.y, m.magnets, m.magPucks, m.magBalls), m.from, m.vx, m.vy, m.end, m.result,
-      { pucks: m.pucks0, glass: m.glass0, balls: m.balls0, noArm: m.noArm, ghost: m.ghost, gadgets: m.gadgets0, mode, local: ult && m.id === myId });
+      { pucks: m.pucks0, glass: m.glass0, balls: m.balls0, noArm: m.noArm, ghost: m.ghost, ice: m.ice, slime: m.slime, gadgets: m.gadgets0, mode, local: ult && m.id === myId });
     a.player = p; a.final = ult ? null : m; a.born = performance.now(); a.seq = m.seq;
     anims.set(m.id, a);
     p.shots = m.shots;
@@ -163,9 +163,11 @@
     if (m.picked && m.picked.length && room.gadgets) room.gadgets = room.gadgets.filter((g) => !m.picked.includes(g.id));
     if (m.slingNext != null) p.slingNext = m.slingNext;
     if (m.ghostNext != null) p.ghostNext = m.ghostNext;
+    if (m.iceNext != null) p.iceNext = m.iceNext;
+    if (m.slimeNext != null) p.slimeNext = m.slimeNext;
     if (m.gadgetQ) p.gadgetQ = m.gadgetQ;
     if (m.picked && m.picked.length && p.id === myId) {
-      const q = (p.gadgetQ || []).map((g) => (g === 'ghost' ? '👻' : '🌀')).join(' → ');
+      const q = (p.gadgetQ || []).map((g) => (S.GADGET_ICON[g] || '?')).join(' → ');
       toast(`Gadget eingesammelt! Deine nächsten Schläge: ${q}`, true);
     }
     if (m.score != null) p.scores[room.holeIndex] = m.score;
@@ -586,7 +588,7 @@
     const b = $('board');
     const ps = room.players.slice().sort(rankSort);
     let h = '<h4>Rangliste <small class="muted">Punkte</small></h4>';
-    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<br>${['attract', 'repel'].map((f) => `<span><i style="color:${S.FIELD_COL[f]};border-color:${S.FIELD_COL[f]};box-shadow:0 0 8px ${S.FIELD_COL[f]}"></i>${S.FIELD_NAME[f]}</span>`).join('<br>')}<br><span><i style="color:#ff3a2a;border-color:#ff3a2a;background:#111"></i>Bombe (groß/klein): ab dem 2. Schlag scharf bei Berührung, Countdown nach dem Zug, sprengt neue Pucks frei</span><br><span><i style="color:${S.NEON.band};border-color:${S.NEON.band};border-radius:2px"></i>Gummiband (verstärkt Abprall)</span><h4 style="margin-top:10px">Gadgets</h4><span><i style="color:${S.GADGET_COL.sling};border-color:${S.GADGET_COL.sling}"></i>🌀 ${S.GADGET_NAME.sling}</span><br><span><i style="color:${S.GADGET_COL.ghost};border-color:${S.GADGET_COL.ghost}"></i>👻 ${S.GADGET_NAME.ghost}</span><p class="muted">Gadgets erscheinen zu jedem Zug neu – mit dem Ball einsammeln.<br>Schlag ${P.config.ultimate.afterShots + 1}: <b style="color:#ff2e88">ULTIMATE BALL</b> – frisst alles auf seinem Weg und wächst, Zeitlupe, lenken.</p>${pointsHelp()}</div>`;
+    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<br>${['attract', 'repel'].map((f) => `<span><i style="color:${S.FIELD_COL[f]};border-color:${S.FIELD_COL[f]};box-shadow:0 0 8px ${S.FIELD_COL[f]}"></i>${S.FIELD_NAME[f]}</span>`).join('<br>')}<br><span><i style="color:#ff3a2a;border-color:#ff3a2a;background:#111"></i>Bombe (groß/klein): ab dem 2. Schlag scharf bei Berührung, Countdown nach dem Zug, sprengt neue Pucks frei</span><br><span><i style="color:${S.NEON.band};border-color:${S.NEON.band};border-radius:2px"></i>Gummiband (verstärkt Abprall)</span><h4 style="margin-top:10px">Gadgets</h4>${['sling', 'ghost', 'ice', 'slime', 'bomb'].map((g) => `<span><i style="color:${S.GADGET_COL[g]};border-color:${S.GADGET_COL[g]}"></i>${S.GADGET_ICON[g]} ${S.GADGET_NAME[g]}</span>`).join('<br>')}<p class="muted">Gadgets erscheinen zu jedem Zug neu – mit dem Ball einsammeln.<br>Schlag ${P.config.ultimate.afterShots + 1}: <b style="color:#ff2e88">ULTIMATE BALL</b> – frisst alles auf seinem Weg und wächst, Zeitlupe, lenken.</p>${pointsHelp()}</div>`;
     for (const p of ps) {
       const a = anims.get(p.id);
       const rolling = a && !a.done;
@@ -598,7 +600,7 @@
       if (isTurn && !(p.done && !rolling)) st = (rolling ? 'rollt …' : '▶ <b>am Zug</b>') + ` · Schlag ${p.shots + (rolling ? 0 : 1)}/${P.MAX_SHOTS}`;
       if (room.phase === 'playing' && !p.done && p.bonus) st += ` · <b style="color:#39ff8a">+${p.bonus} Bonus</b>`;
       if (p.magnet) st += ` · <b style="color:#ffe03a">🧲 ${p.magnetPuck != null ? 'Puck-Magnet' : 'Magnet'}</b>`;
-      if (!p.done && p.gadgetQ && p.gadgetQ.length) st += ` · <b title="Gadgets der Reihe nach" style="color:#00eaff">${p.gadgetQ.map((g) => (g === 'ghost' ? '👻' : '🌀')).join('')}</b>`;
+      if (!p.done && p.gadgetQ && p.gadgetQ.length) st += ` · <b title="Gadgets der Reihe nach" style="color:#00eaff">${p.gadgetQ.map((g) => (S.GADGET_ICON[g] || '?')).join('')}</b>`;
       else if (room.phase === 'playing' && !p.done && P.config.magnet.usesPerHole > 0) st += ` · 🧲${p.magnetLeft || 0}`;
       h += `<div class="bp ${p.id === myId ? 'me' : ''} ${isTurn ? 'turn' : ''}"><div class="top">${playerDot(p)}<span class="nm">${esc(p.name)}</span>${p.id === room.hostId ? '👑' : ''}<span class="tot">${total(p)}</span></div><div class="st">${st}</div></div>`;
     }
@@ -688,11 +690,11 @@
     const mine = me();
     const balls = room ? room.players.filter((q) => q.id !== myId && q.ball && !q.sunk).map((q) => ({ id: q.id, x: q.ball.x, y: q.ball.y })) : [];
     const noArm = mine ? !P.canArm(mine.shots + 1) : false;
-    const gadgets = room ? room.gadgets || [] : [], ghost = !!(mine && mine.ghostNext);
-    const key = gadgets.map((g) => g.id + '@' + g.x).join(';') + '|' + ghost + '|' + pucksVer + '|' + balls.map((b) => b.id + ':' + b.x + ',' + b.y).join(';') + '|' + (mine && mine.ball ? mine.ball.x + ',' + mine.ball.y : '') + '|' + noArm;
+    const gadgets = room ? room.gadgets || [] : [], ghost = !!(mine && mine.ghostNext), ice = !!(mine && mine.iceNext), slime = !!(mine && mine.slimeNext);
+    const key = gadgets.map((g) => g.id + '@' + g.x).join(';') + '|' + ghost + ice + slime + '|' + pucksVer + '|' + balls.map((b) => b.id + ':' + b.x + ',' + b.y).join(';') + '|' + (mine && mine.ball ? mine.ball.x + ',' + mine.ball.y : '') + '|' + noArm;
     if (!predCache || predCache.key !== key) {
       const list = mine && mine.ball ? pucks.concat(P.ballBodies(balls, mine.ball.x, mine.ball.y)) : pucks;
-      predCache = { key, list, ver: key, glass, noArm, gadgets, ghost };
+      predCache = { key, list, ver: key, glass, noArm, gadgets, ghost, ice, slime };
     }
     return predCache;
   }
@@ -897,6 +899,13 @@
         if (ghosting) {
           ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = '#e8e4ff'; ctx.lineWidth = 2; ctx.globalAlpha = 0.5 + Math.sin(t * 6) * 0.3;
           ctx.setLineDash([3, 5]); ctx.lineDashOffset = t * 20; ctx.beginPath(); ctx.arc(pos.x, pos.y, P.BALL_R * sc + 9, 0, 7); ctx.stroke(); ctx.restore();
+        }
+        // Eis-/Schleim-Ball: farbiger Ring (beim Schlag und solange er bereitliegt)
+        const live = a && !a.ballDone && a.s;
+        const auraC = (live ? live.ice : (!a || a.ballDone) && p.iceNext) ? '#8fe8ff' : (live ? live.slime : (!a || a.ballDone) && p.slimeNext) ? '#7dff3a' : null;
+        if (auraC) {
+          ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = auraC; ctx.lineWidth = 3; ctx.globalAlpha = 0.55 + Math.sin(t * 5) * 0.25;
+          ctx.beginPath(); ctx.arc(pos.x, pos.y, P.BALL_R * sc + 7 + Math.sin(t * 7) * 1.5, 0, 7); ctx.stroke(); ctx.restore();
         }
         S.drawBall(ctx, pos.x, pos.y, p.color, p.id === myId ? null : p.name, (p.id === myId ? 1 : 0.9) * (a && !a.ballDone && a.s && a.s.ghost ? 0.45 : 1), null, 0, sc, p.id === myId);
       }

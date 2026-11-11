@@ -55,6 +55,25 @@
       "min": 1,
       "max": 2
     },
+    "ice": {
+      "min": 1,
+      "max": 1,
+      "speed": 0.7,
+      "life": 3.5,
+      "turns": 2
+    },
+    "bomb": {
+      "min": 1,
+      "max": 1,
+      "bombs": 5
+    },
+    "slime": {
+      "min": 1,
+      "max": 1,
+      "slow": 0.12,
+      "minKeep": 0.35,
+      "drag": 0.6
+    },
     "life": [
       2,
       4

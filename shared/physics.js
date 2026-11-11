@@ -52,6 +52,9 @@
       life: [2, 4],        // so viele Züge bleibt ein Gadget liegen (zufällig dazwischen)
       sling: { min: 1, max: 2 },   // nächster Schlag ist ein Sling-Ball
       ghost: { min: 1, max: 2 },   // nächster Schlag als Geist: durch Pucks/Bälle, immun gegen alle Effekte
+      ice: { min: 1, max: 1, speed: 0.7, life: 3.5, turns: 2 }, // Eis-Ball: friert berührte Pucks für `turns` Züge ein, langsamer, schmilzt nach `life` s
+      bomb: { min: 1, max: 1, bombs: 5 },
+      slime: { min: 1, max: 1, slow: 0.12, minKeep: 0.35, drag: 0.6 }, // Schleim-Ball: berührte Pucks kleben am Ball und bremsen ihn (schwere mehr) // Bomben-Gadget: sprengt nach dem Schlag dich und alle anderen Bälle weg, dazu kommen `bombs` neue Bomben
     },
     glass: {               // Glaswände: zerbrechen bei genug Tempo, sonst prallt man ab
       breakSpeed: 1100,    // ab diesem Aufprall-Tempo (px/s) zerbricht das Glas
@@ -195,7 +198,10 @@
     c.gadgets.life = [Math.round(lim(c.gadgets.life[0], 1, 50)), Math.round(lim(c.gadgets.life[1], 1, 50))];
     if (c.gadgets.life[1] < c.gadgets.life[0]) c.gadgets.life[1] = c.gadgets.life[0];
     c.magnet.damp = lim(c.magnet.damp, 0, 50); c.blackHole.alwaysPull = c.blackHole.alwaysPull !== false;
-    for (const k of ['sling', 'ghost']) { const g = c.gadgets[k]; g.min = Math.round(lim(g.min, 0, 10)); g.max = Math.round(lim(g.max, g.min, 10)); }
+    { const I = c.gadgets.ice; I.speed = lim(I.speed, 0.1, 2); I.life = lim(I.life, 0.5, 30); I.turns = Math.round(lim(I.turns, 1, 20)); }
+    c.gadgets.bomb.bombs = Math.round(lim(c.gadgets.bomb.bombs, 0, 20));
+    { const L = c.gadgets.slime; L.slow = lim(L.slow, 0, 5); L.minKeep = lim(L.minKeep, 0.01, 1); L.drag = lim(L.drag, 0, 5); }
+    for (const k of GADGET_TYPES) { const g = c.gadgets[k]; g.min = Math.round(lim(g.min, 0, 10)); g.max = Math.round(lim(g.max, g.min, 10)); }
     c.glass.breakSpeed = lim(c.glass.breakSpeed, 0, 30000); c.glass.keep = lim(c.glass.keep, 0, 1); c.glass.bounce = lim(c.glass.bounce, 0, 2);
     c.bounce.band = lim(c.bounce.band, 0, 3); c.bounce.bandKick = lim(c.bounce.bandKick, 0, 3000);
     c.ultimate.afterShots = Math.round(lim(c.ultimate.afterShots, 0, 50));
@@ -255,6 +261,7 @@
   }
 
   /** Map in schnell prüfbare Strukturen übersetzen */
+  const GADGET_TYPES = ['sling', 'ghost', 'ice', 'bomb', 'slime'];
   function compile(map) {
     const W = num(map.width, 1200), H = num(map.height, 800);
     const solids = [];
@@ -361,10 +368,13 @@
       waterWalk: !!opts.kick && K.ultimate.waterWalk, // Ultimate gleitet über Wasser
       noArm: !!opts.noArm, // erster Schlag: Bomben werden noch nicht scharf
       ghost: !!opts.ghost, // Ghost-Gadget: durch Pucks/Bälle, keine Effekte
+      ice: !!opts.ice,     // Eis-Gadget: friert Pucks ein, langsamer, schmilzt
+      slime: !!opts.slime, slimeN: 0, // Schleim-Gadget: Pucks kleben am Ball
       gadgets: (opts.gadgets || []).map((g) => ({ id: g.id, type: g.type, x: g.x, y: g.y })),
       picked: [],          // eingesammelte Gadget-IDs
     };
     if (s.ghost) s.noArm = true;
+    if (s.ice) { s.vx *= K.gadgets.ice.speed; s.vy *= K.gadgets.ice.speed; }
     if (opts.glass) for (const i of opts.glass) s.glass[i] = true;
     // liegende Gegnerbälle: bewegliche Körper (am Ende der Puck-Liste, pb = Spieler-ID)
     if (opts.balls) for (const b of ballBodies(opts.balls, x, y)) s.pucks.push(b);
@@ -377,6 +387,7 @@
       if (q.bomb) { o.bomb = true; o.armed = !!q.armed; o.bs = q.bs || 'big'; }
       if (q.pb != null) { o.pb = q.pb; o.ox = q.ox; o.oy = q.oy; }
       if (q.gp != null) o.gp = q.gp;
+      if (q.fz) o.fz = q.fz;
       return o;
     });
   }
@@ -388,6 +399,7 @@
       const o = { x: q.x, y: q.y, r: q.r, m: q.m, c: q.c, alive: q.alive };
       if (q.f) o.f = q.f;
       if (q.gp != null) o.gp = q.gp;
+      if (q.fz) o.fz = q.fz;
       if (q.bomb) { o.bomb = true; o.armed = !!q.armed; o.bs = q.bs || 'big'; }
       out.push(o);
     }
@@ -403,10 +415,19 @@
     return out;
   }
   function grow(s) { s.br = Math.min(K.ballRadius * K.ultimate.maxScale, s.br + K.ultimate.grow); }
+  /** Puck q an den Schleim-Ball kleben (an der Stelle, wo er den Körper bei cx/cy mit Radius cr berührt) */
+  function stick(s, q, cx, cy, cr) {
+    arm(s, q);
+    const L = K.gadgets.slime, dx = q.x - cx, dy = q.y - cy, d = Math.sqrt(dx * dx + dy * dy) || 1, rr = cr + q.r;
+    q.x = cx + dx / d * rr; q.y = cy + dy / d * rr; q.sx = q.x - s.x; q.sy = q.y - s.y; q.st = true;
+    const keep = Math.max(L.minKeep, 1 / (1 + L.slow * q.m)); // schwere Pucks bremsen mehr
+    s.slimeN++; s.vx *= keep; s.vy *= keep; q.vx = s.vx; q.vy = s.vy;
+    s.bounce = true; s.pevents.push({ type: 'stick', x: q.x, y: q.y, c: q.c });
+  }
   /** Bombe scharf machen (Berührung) */
   /** darf ein Schlag mit dieser Nummer (1 = erster) Bomben scharf machen? */
   function canArm(shotNo) { return shotNo >= K.pucks.bombs.armFromShot; }
-  function arm(s, q) { if (s.noArm) return; if (q.bomb && !q.armed && q.alive) { q.armed = true; s.pevents.push({ type: 'arm', x: q.x, y: q.y }); } }
+  function arm(s, q) { if (s.noArm || q.fz) return; if (q.bomb && !q.armed && q.alive) { q.armed = true; s.pevents.push({ type: 'arm', x: q.x, y: q.y }); } }
   function touching(a, b, ra, rb) { const dx = b.x - a.x, dy = b.y - a.y, rr = ra + rb + 0.5; return dx * dx + dy * dy < rr * rr; }
 
   /** Ultimate: alle Pucks vom Ball wegschleudern (schwere weniger) */
@@ -630,7 +651,7 @@
       // Feld-Pucks: Gravitation (zieht an) bzw. Abstoßung (drückt weg)
       for (let i = 0; !s.ghost && i < s.pucks.length; i++) {
         const q = s.pucks[i];
-        if (!q.f || !q.alive) continue;
+        if (!q.f || !q.alive || q.st) continue; // ein klebender Feld-Puck zieht/schiebt den eigenen Ball nicht
         const F = q.f === 'repel' ? K.pucks.repel : K.pucks.attract;
         const mx = q.x - s.x, my = q.y - s.y, md2 = mx * mx + my * my;
         if (md2 >= F.radius * F.radius || md2 < 1e-12) continue;
@@ -656,13 +677,15 @@
           const mf = magForce(s, mx, my, md, MR, MS, s.br + q.r); ex += mf[0]; ey += mf[1];
         }
       }
-      if (!applyForces(cm, s, 1, ex, ey, s.ghost, s.waterWalk)) { s.done = true; s.result = 'water'; }
+      if (!applyForces(cm, s, 1 + s.slimeN * K.gadgets.slime.drag, ex, ey, s.ghost, s.waterWalk)) { s.done = true; s.result = 'water'; }
       else maxSp = s._sp;
     }
     // --- Pucks: Kräfte
     for (let i = 0; i < s.pucks.length; i++) {
       const q = s.pucks[i];
       if (!q.alive) continue;
+      if (q.fz) { q.vx = 0; q.vy = 0; q._sp = 0; continue; } // eingefroren: bewegt sich nicht
+      if (q.st) continue; // klebt am Schleim-Ball: fährt einfach mit
       const g = holeGravity(cm, q.x, q.y, puckPull(q));
       let fx = g ? g[0] : 0, fy = g ? g[1] : 0;
       if (q.pb != null) {
@@ -698,6 +721,7 @@
     for (let k = 0; k < n; k++) {
       if (!s.done) {
         s.x += s.vx * sdt; s.y += s.vy * sdt; collideStatic(cm, s, s.br, true, s);
+        if (s.slimeN) for (let i = 0; i < s.pucks.length; i++) { const q = s.pucks[i]; if (q.st) { q.x = s.x + q.sx; q.y = s.y + q.sy; q.vx = s.vx; q.vy = s.vy; } }
         // Gadgets einsammeln
         for (let i = 0; i < s.gadgets.length; i++) {
           const gd = s.gadgets[i];
@@ -708,7 +732,7 @@
       }
       for (let i = 0; i < s.pucks.length; i++) {
         const q = s.pucks[i];
-        if (!q.alive || (q.vx === 0 && q.vy === 0)) continue;
+        if (!q.alive || q.st || (q.vx === 0 && q.vy === 0)) continue;
         q.x += q.vx * sdt; q.y += q.vy * sdt;
         collideStatic(cm, q, q.r, false, s);
       }
@@ -725,8 +749,15 @@
             continue;
           }
           if (s.ghost && !s.done) continue; // Geist fliegt durch Pucks und Bälle
+          if (q.st) continue; // klebt schon
+          if (s.slime && !s.done && q.pb == null && !q.fz && touching(s, q, s.br, q.r)) { stick(s, q, s.x, s.y, s.br); continue; } // Schleim: Puck klebt am Ball
+          if (s.ice && !s.done && q.pb == null && !q.fz && touching(s, q, s.br, q.r)) {
+            // Eis-Ball friert den Puck ein (scharfe Bomben werden dabei entschärft)
+            q.fz = K.gadgets.ice.turns + 1; q.vx = q.vy = 0; if (q.bomb) q.armed = false;
+            s.pevents.push({ type: 'freeze', x: q.x, y: q.y, r: q.r });
+          }
           if (q.bomb && !q.armed && !s.done && touching(s, q, s.br, q.r)) arm(s, q);
-          const imp = collidePair(s, s.done ? 0 : PK.ballMass, q, q.m, PK.bounce, s.br, q.r);
+          const imp = collidePair(s, s.done ? 0 : PK.ballMass, q, q.fz ? 0 : q.m, PK.bounce, s.br, q.r);
           if (imp > 40 && !s.done) { s.bounce = true; if (imp > s.hitV) { s.hitV = imp; s.hit = { kind: 'puck', c: q.c, m: q.m }; } }
         }
       }
@@ -736,15 +767,19 @@
         for (let j = i + 1; j < s.pucks.length; j++) {
           const b = s.pucks[j];
           if (!b.alive || (a.vx === 0 && a.vy === 0 && b.vx === 0 && b.vy === 0)) continue;
+          if (s.slimeN && !s.done && (a.st !== b.st) && touching(a, b, a.r, b.r)) { // klebt an einem klebenden Puck -> Klumpen wächst
+            const o = a.st ? b : a, w = a.st ? a : b;
+            if (o.pb == null && !o.fz) { stick(s, o, w.x, w.y, w.r); continue; }
+          }
           if ((a.bomb && !a.armed) || (b.bomb && !b.armed)) { if (touching(a, b, a.r, b.r)) { arm(s, a); arm(s, b); } }
-          const imp = collidePair(a, a.m, b, b.m, PK.bounce, a.r, b.r);
+          const imp = collidePair(a, a.fz ? 0 : a.m, b, b.fz ? 0 : b.m, PK.bounce, a.r, b.r);
           if (imp > 120 && s.pevents.length < 200) s.pevents.push({ type: 'pp', x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, v: imp });
         }
       }
       // Pucks, die ins schwarze Loch fallen, werden verschluckt
       for (let i = 0; i < s.pucks.length; i++) {
         const q = s.pucks[i];
-        if (!q.alive) continue;
+        if (!q.alive || q.st) continue;
         const dx = cm.hole.x - q.x, dy = cm.hole.y - q.y;
         if (dx * dx + dy * dy < HOLE_R * HOLE_R) {
           q.alive = false; q.vx = q.vy = 0;
@@ -762,6 +797,9 @@
 
     s.t += DT; s.n++;
     // --- Ball-Ende
+    if (!s.done && s.ice && s.t >= K.gadgets.ice.life) { // Eis-Ball schmilzt und bleibt liegen
+      s.vx = 0; s.vy = 0; s.done = true; s.result = 'rest'; s.pevents.push({ type: 'melt', x: s.x, y: s.y });
+    }
     if (!s.done) {
       const sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
       if (sp < STOP_SPEED && s._a2 < s._dec * s._dec) { s.vx = 0; s.vy = 0; s.done = true; s.result = 'rest'; }
@@ -769,6 +807,11 @@
         if (sp < STOP_SPEED * 6) s.slow += DT; else s.slow = 0;
         if (s.slow > 1.2) { s.vx = 0; s.vy = 0; s.done = true; s.result = 'rest'; }
       }
+    }
+    // Ball liegt (oder ist weg): klebende Pucks fallen ab und bleiben dort liegen
+    if (s.done && s.slimeN) {
+      for (const q of s.pucks) if (q.st) { q.st = false; delete q.sx; delete q.sy; q.vx = 0; q.vy = 0; const t = { x: q.x, y: q.y, vx: 0, vy: 0, hitV: 0 }; collideStatic(cm, t, q.r, false); q.x = t.x; q.y = t.y; }
+      s.slimeN = 0;
     }
     // --- Pucks-Ende
     let moving = false;
@@ -852,6 +895,7 @@
   /** Werte einer Bombe je nach Größe */
   function bombCfg(q) { return K.pucks.bombs[q && q.bs === 'small' ? 'small' : 'big']; }
   function blastState(cm, pucks, balls, glass, idx) {
+    if (idx && typeof idx === 'object') return boomState(cm, pucks, balls, glass, idx);
     const bodies = clonePucks(pucks);
     for (const b of balls || []) bodies.push({ x: b.x, y: b.y, vx: 0, vy: 0, r: K.ballRadius, m: K.pucks.ballMass, c: 'ball', f: null, alive: true, pb: b.id, ox: b.x, oy: b.y });
     const s = createState(-1e6, -1e6, 0, 0, [], { glass });
@@ -867,6 +911,7 @@
       if (d >= B.blastRadius) continue;
       if (d < 1e-6) { dx = 1; dy = 0; d = 1; }
       const f = B.force * (1 - d / B.blastRadius) / Math.sqrt(q.m);
+      delete q.fz; // Explosion sprengt das Eis
       q.vx += dx / d * f; q.vy += dy / d * f;
       arm(s, q); // Kettenreaktion: andere Bomben im Radius werden scharf
     }
@@ -886,6 +931,49 @@
       s.pevents.push({ type: 'debris', x: q.x, y: q.y, c, f: q.f });
     }
     bodies.splice(pucks.length, 0, ...debris); // hinter die bisherigen Pucks, vor die Bälle
+    return s;
+  }
+  /**
+   * Bomben-Gadget: Explosion direkt an den Bällen (spec.at = [{x,y}]), danach liegen spec.bombs neue
+   * (nicht scharfe) Bomben auf der Bahn. Alles deterministisch aus spec.seed.
+   */
+  function boomState(cm, pucks, balls, glass, spec) {
+    const bodies = clonePucks(pucks);
+    for (const b of balls || []) bodies.push({ x: b.x, y: b.y, vx: 0, vy: 0, r: K.ballRadius, m: K.pucks.ballMass, c: 'ball', f: null, alive: true, pb: b.id, ox: b.x, oy: b.y });
+    const s = createState(-1e6, -1e6, 0, 0, [], { glass });
+    s.pucks = bodies; s.done = true; s.result = 'rest';
+    const R = rng((spec.seed >>> 0) || 1), B = K.pucks.bombs.big;
+    for (const c of spec.at || []) {
+      s.pevents.push({ type: 'boom', x: c.x, y: c.y, r: B.blastRadius, small: false });
+      const a = R() * Math.PI * 2; // Ball genau im Zentrum fliegt in eine zufällige (aber feste) Richtung
+      for (const q of bodies) {
+        if (!q.alive) continue;
+        let dx = q.x - c.x, dy = q.y - c.y, d = Math.sqrt(dx * dx + dy * dy);
+        if (d >= B.blastRadius) continue;
+        if (d < 1e-3) { dx = dcos(a); dy = dsin(a); d = 1; }
+        const f = B.force * (1 - 0.5 * d / B.blastRadius) / Math.sqrt(q.m);
+        delete q.fz;
+        q.vx += dx / d * f; q.vy += dy / d * f;
+        arm(s, q);
+      }
+    }
+    // neue Bomben verteilen (nicht nahe Loch, Abschlag, Bällen oder anderen Pucks)
+    const BB = K.pucks.bombs, add = [];
+    for (let tries = 0; add.length < (spec.bombs || 0) && tries < 4000; tries++) {
+      const bs = R() < BB.bigShare ? 'big' : 'small', bc = BB[bs], r = bc.radius;
+      const x = r + 10 + R() * (cm.W - 2 * r - 20), y = r + 10 + R() * (cm.H - 2 * r - 20);
+      if ((x - cm.hole.x) ** 2 + (y - cm.hole.y) ** 2 < 200 * 200 || (x - cm.start.x) ** 2 + (y - cm.start.y) ** 2 < 150 * 150) continue;
+      if ((spec.at || []).some((c) => (c.x - x) ** 2 + (c.y - y) ** 2 < 120 * 120)) continue;
+      { const g = holeGravity(cm, x, y, puckPull({ m: bc.mass })); if (g && g[0] * g[0] + g[1] * g[1] > (K.surfaces.grass.decel * K.pucks.friction * 0.8) ** 2) continue; }
+      if (cm.zones.some((z) => z.kind === 'water' && x > z.x1 - r && x < z.x2 + r && y > z.y1 - r && y < z.y2 + r)) continue;
+      if (bodies.concat(add).some((q) => q.alive && (q.x - x) ** 2 + (q.y - y) ** 2 < (q.r + r + 10) ** 2)) continue;
+      const t = { x, y, vx: 0, vy: 0, hitV: 0 };
+      collideStatic(cm, t, r + 4, false);
+      if (t.x !== x || t.y !== y) continue;
+      add.push({ x: Math.round(x), y: Math.round(y), vx: 0, vy: 0, r, m: bc.mass, c: 'medium', f: null, bomb: true, bs, armed: false, alive: true });
+      s.pevents.push({ type: 'debris', x: Math.round(x), y: Math.round(y), c: 'medium', f: null });
+    }
+    bodies.splice(pucks.length, 0, ...add);
     return s;
   }
   /**
@@ -1004,7 +1092,7 @@
     // vorhandene Gadgets bleiben liegen, bis ihre Lebensdauer (in Zügen) abläuft
     const out = (existing || []).map((g) => ({ ...g, ttl: (g.ttl || 1) - 1 })).filter((g) => g.ttl > 0);
     let id = out.reduce((m, g) => Math.max(m, g.id), 0) + 1;
-    for (const type of ['sling', 'ghost']) {
+    for (const type of GADGET_TYPES) {
       const n = G[type].min + Math.floor(R() * (G[type].max - G[type].min + 1));
       for (let k = out.filter((g) => g.type === type).length, tries = 0; k < n && tries < 3000; tries++) {
         const x = r + 30 + R() * (cm.W - 2 * r - 60), y = r + 30 + R() * (cm.H - 2 * r - 60);
@@ -1064,7 +1152,7 @@
   const api = {
     DT, DEFAULTS, DEFAULT_CONFIG,
     configure, compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap, spawnPucks, exportPucks, exportGlass, modeCfg, shotMode,
-    holePoints, shotBonus, dsin, dcos, blastState, blast, blastBalls, launchState, launch, ballBodies, bombCfg, canArm, spawnGadgets,
+    holePoints, shotBonus, dsin, dcos, blastState, blast, blastBalls, GADGET_TYPES, launchState, launch, ballBodies, bombCfg, canArm, spawnGadgets,
   };
   // Live-Werte (ändern sich mit configure)
   Object.defineProperties(api, {

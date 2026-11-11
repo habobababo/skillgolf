@@ -399,22 +399,22 @@
   const ctrl = new S.ShotController(canvas, view, {
     fx, sfx, color: () => '#ffe03a', hoverPreview: true,
     canShoot: () => !!testing && !testing.anim && !testing.blast && !testing.done,
-    getPucks: () => (testing ? { list: testing.pucks, ver: testing.pver, glass: testing.glass, noArm: !P.canArm(testing.shots + 1), gadgets: testing.gadgets, ghost: testFlags().ghost } : null),
+    getPucks: () => (testing ? { list: testing.pucks, ver: testing.pver, glass: testing.glass, noArm: !P.canArm(testing.shots + 1), gadgets: testing.gadgets, ghost: testFlags().ghost, ice: testFlags().ice, slime: testFlags().slime } : null),
     shotMode: () => testMode(),
     onShoot: (angle, power) => {
       const mode = testMode();
       const v = P.shotVelocity(angle, power, mode);
       if (mode === 'ult') testing.ultUsed = true;
-      const ghost = testFlags().ghost;
+      const { ghost, ice, slime } = testFlags();
       if (mode !== 'ult' && testing.gadgetQ.length) testing.gadgetQ.shift();
       testing.shots++;
       testing.from = { ...testing.ball };
-      testing.anim = new S.BallAnim(testing.cm, testing.ball, v.vx, v.vy, null, null, { pucks: testing.pucks, glass: testing.glass, noArm: !P.canArm(testing.shots), ghost, gadgets: testing.gadgets, mode, local: true });
+      testing.anim = new S.BallAnim(testing.cm, testing.ball, v.vx, v.vy, null, null, { pucks: testing.pucks, glass: testing.glass, noArm: !P.canArm(testing.shots), ghost, ice, slime, gadgets: testing.gadgets, mode, local: true });
     },
   });
   function testFlags() {
     const q = testing ? testing.gadgetQ : [], ult = testing && P.shotMode(testing.shots + 1, testing.ultUsed, false) === 'ult';
-    return { sling: !ult && q[0] === 'sling', ghost: !ult && q[0] === 'ghost' };
+    return { sling: !ult && q[0] === 'sling', ghost: !ult && q[0] === 'ghost', ice: !ult && q[0] === 'ice', slime: !ult && q[0] === 'slime' };
   }
   function testMode() { return testing && !testing.done ? P.shotMode(testing.shots + 1, testing.ultUsed, testFlags().sling) : null; }
   let pullHeld = false; // Ultimate: linke Maustaste = Zugstrahl zum Zeiger
@@ -456,6 +456,7 @@
 
   function armFuses(T) {
     T.pucks.forEach((q, i) => { if (q.alive && q.bomb && q.armed && !(i in T.fuse)) T.fuse[i] = P.config.pucks.bombs.fuse * 1000; });
+    for (const i of Object.keys(T.fuse)) if (!T.pucks[i] || !T.pucks[i].alive || !T.pucks[i].armed) delete T.fuse[i];
   }
   function updateTest(dt) {
     const T = testing;
@@ -466,14 +467,15 @@
       if (T.anim.done) {
         const r = T.anim.s.result;
         T.pucks = P.exportPucks(T.anim.s); T.glass = P.exportGlass(T.anim.s); T.pver++;
-        for (const id of T.anim.s.picked) { const g = T.gadgets.find((x) => x.id === id); if (g) T.gadgetQ.push(g.type); }
+        for (const id of T.anim.s.picked) { const g = T.gadgets.find((x) => x.id === id); if (g) { if (g.type === 'bomb') T.boom = true; else T.gadgetQ.push(g.type); } }
+        for (const q of T.pucks) if (q.fz) { q.fz--; if (q.fz <= 0) delete q.fz; } // Eis taut pro Schlag
         T.gadgets = T.gadgets.filter((g) => !T.anim.s.picked.includes(g.id));
         T.lastTrail = T.anim.trail; T.trailFade = 0;
         T.anim = null;
         if (r === 'water') { T.ball = T.from; toast('💦 Wasser – zurück'); }
         armFuses(T);
         // Gadgets wie im Spiel: zu jedem Schlag neu verteilt
-        if (T.gadgetQ.length) toast('Gadgets: ' + T.gadgetQ.map((g) => (g === 'ghost' ? '👻' : '🌀')).join(' → '));
+        if (T.gadgetQ.length) toast('Gadgets: ' + T.gadgetQ.map((g) => (S.GADGET_ICON[g] || '?')).join(' → '));
         T.gadgets = P.spawnGadgets(T.cm, (Math.random() * 2 ** 31) | 0, T.pucks, [T.ball], T.gadgets);
         if (r === 'sunk') { T.done = true; toast(`⛳ Eingelocht mit ${T.shots} Schlag/Schlägen (Par ${map.par})`); }
         else if (T.shots >= P.MAX_SHOTS) { T.done = true; toast('Keine Schläge mehr'); }
@@ -483,6 +485,11 @@
       }
     }
     // Bomben: Countdown läuft, solange nichts rollt (im Test gibt es keine Züge)
+    if (!T.anim && !T.blast && T.boom && !T.done) { // Bomben-Gadget: Explosion am eigenen Ball + neue Bomben
+      T.boom = false;
+      T.blast = new S.BlastAnim(T.cm, P.blastState(T.cm, T.pucks, [{ id: 0, x: T.ball.x, y: T.ball.y }], T.glass, { at: [{ x: T.ball.x, y: T.ball.y }], bombs: P.config.gadgets.bomb.bombs, seed: (Math.random() * 2 ** 31) | 0 }));
+      toast('💣 Bomben-Gadget gezündet!');
+    }
     if (!T.anim && !T.blast) {
       for (const i of Object.keys(T.fuse)) {
         T.fuse[i] -= dt * 1000;
@@ -498,6 +505,8 @@
       const bp = T.blast.ballPos(0); if (bp) T.ball = { x: bp.x, y: bp.y };
       if (T.blast.done && T.blast.fade > 0.3) {
         const bb = P.blastBalls(T.blast.s)[0]; if (bb) T.ball = { x: bb.x, y: bb.y };
+        if (bb && bb.holed) { T.done = true; toast(`⛳ Reingeschleudert – eingelocht mit ${T.shots} Schlag/Schlägen`); }
+        else if (bb && bb.back) toast('💦 Ins Wasser geschleudert – zurück zum Abschlag');
         T.pucks = P.exportPucks(T.blast.s); T.glass = P.exportGlass(T.blast.s); T.pver++; T.blast = null;
         armFuses(T);
       }
