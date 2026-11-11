@@ -1,5 +1,5 @@
 {
- "author": "Skillshot",
+ "author": "Skillgolf",
  "width": 1200,
  "height": 800,
  "name": "Rampen",
@@ -56,20 +56,20 @@
    "strength": 260
   },
   {
-   "type": "wall",
+   "type": "band",
    "x1": 1100,
    "y1": 800,
    "x2": 1200,
    "y2": 700,
-   "t": 14
+   "t": 10
   },
   {
-   "type": "wall",
+   "type": "band",
    "x1": 1100,
    "y1": 0,
    "x2": 1200,
    "y2": 100,
-   "t": 14
+   "t": 10
   }
  ]
 }

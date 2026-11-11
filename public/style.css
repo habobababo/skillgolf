@@ -26,7 +26,11 @@ label input, label select { margin-top: 4px; }
 .row { display: flex; gap: 8px; align-items: center; }
 .row > input { flex: 1; }
 .code { text-transform: uppercase; letter-spacing: 4px; text-align: center; font-weight: 700; }
-.logo { font-size: 56px; margin: 0; letter-spacing: 4px; font-weight: 900; font-style: italic; text-align: center; color: #fff; text-shadow: 0 0 8px #00eaff, 0 0 24px #00eaff, 0 0 48px #0090ff; animation: flicker 4s infinite; }
+.logo { font-size: 56px; margin: 0; letter-spacing: 4px; font-weight: 900; font-style: italic; text-align: center; color: #fff; text-shadow: 0 0 8px #00eaff, 0 0 24px #00eaff, 0 0 48px #0090ff; transition: opacity .02s; }
+.logo.dim { opacity: .35; text-shadow: 0 0 4px #00eaff; }
+.logo.off { opacity: .12; text-shadow: none; }
+.logo .ch { display: inline-block; font-weight: inherit; transition: opacity .02s; }
+.logo .ch.off { opacity: .15; text-shadow: none; }
 @keyframes flicker { 0%, 92%, 100% { opacity: 1; } 93% { opacity: .55; } 95% { opacity: 1; } 96% { opacity: .7; } }
 .logo span { color: #ff2e88; text-shadow: 0 0 8px #ff2e88, 0 0 24px #ff2e88, 0 0 48px #b45cff; }
 .slogan { text-align: center; margin: 2px 0 0; font-size: 18px; font-style: italic; letter-spacing: 3px; color: rgba(200,210,255,.35); text-shadow: 0 0 10px rgba(0,234,255,.15); }
@@ -91,10 +95,6 @@ table.score tr.win td { background: rgba(255,224,58,.12); color: #ffe03a; }
 #chatIn:focus { opacity: 1; }
 @media (max-width: 800px) { #board { display: none; } #cv { width: 100%; right: 0; } #overlay { right: 0; } #chat { display: none; } }
 
-.avrow { display: flex; gap: 12px; align-items: center; margin: 6px 0 4px; }
-.avbtns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.avatar { width: 18px; height: 18px; border-radius: 50%; background: rgba(20,22,60,.9) center/cover no-repeat; flex: none; box-shadow: 0 0 0 2px currentColor, 0 0 10px currentColor; display: inline-block; }
-.avatar.big { width: 64px; height: 64px; color: #00eaff; display: grid; place-items: center; font-size: 26px; }
 
 #shotDots i.ult { box-shadow: 0 0 8px #ff2e88, 0 0 16px #b45cff; background: #ff2e88; }
 #shotDots i.ult.used { background: transparent; box-shadow: inset 0 0 0 1.5px rgba(255,46,136,.5); }

@@ -1,14 +1,26 @@
-/* Skillshot – gemeinsames Rendering, Effekte, Sound & Steuerung (Spiel + Editor) – Neon-Stil */
+/* Skillgolf – gemeinsames Rendering, Effekte, Sound & Steuerung (Spiel + Editor) – Neon-Stil */
 (function () {
   const P = window.SkillPhysics;
+
+  // Umbenennung Skillshot -> Skillgolf: gespeicherte Einstellungen einmalig übernehmen, alte Profilbilder löschen
+  try {
+    for (const k of ['name', 'mute', 'editorDraft']) {
+      const old = localStorage.getItem('skillshot.' + k);
+      if (old != null && localStorage.getItem('skillgolf.' + k) == null) localStorage.setItem('skillgolf.' + k, old);
+      localStorage.removeItem('skillshot.' + k);
+    }
+    localStorage.removeItem('skillshot.avatar');
+  } catch { /* kein Speicher */ }
 
   const NEON = {
     bg1: '#0d0b26', bg2: '#020207', floor: '#090b1c', grid: 'rgba(110,130,255,0.07)', border: '#00eaff',
     wall: '#2ef2ff', block: '#8a5cff', bumper: '#ff2e88', sand: '#ffb02e', ice: '#a6fbff',
-    water: '#2f7bff', slope: '#39ff8a', boost: '#ffe600', hole: '#ffffff',
+    water: '#2f7bff', slope: '#39ff8a', boost: '#ffe600', hole: '#ffffff', band: '#ff9a3c',
   };
   const PUCK_COL = { light: '#39ff8a', medium: '#ffe03a', heavy: '#ff3860' };
   const PUCK_NAME = { light: 'leicht', medium: 'mittel', heavy: 'schwer' };
+  const FIELD_COL = { attract: '#c36bff', repel: '#ff9a3c' };
+  const FIELD_NAME = { attract: 'Gravitation (zieht an)', repel: 'Abstoßung (drückt weg)' };
   const MAX_DRAG = () => P.config.dragDistance; // CSS-Pixel Ziehweg für 100 % Kraft
 
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -177,8 +189,28 @@
     ctx.restore();
   }
 
-  function drawDynamic(ctx, map, t, fx) {
+  function drawDynamic(ctx, map, t, fx, broken) {
     const objs = map.objects || [];
+    // Glaswände (zerbrochene nicht mehr)
+    for (let i = 0; i < objs.length; i++) {
+      const o = objs[i];
+      if (o.type !== 'glass' || (broken && broken[i])) continue;
+      const w = o.t || 8, dx = o.x2 - o.x1, dy = o.y2 - o.y1, L = Math.hypot(dx, dy) || 1;
+      ctx.save(); ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(180,230,255,0.22)'; ctx.lineWidth = w + 6; glow(ctx, '#bfefff', 14);
+      ctx.beginPath(); ctx.moveTo(o.x1, o.y1); ctx.lineTo(o.x2, o.y2); ctx.stroke(); noGlow(ctx);
+      ctx.strokeStyle = 'rgba(220,250,255,0.8)'; ctx.lineWidth = 1.5;
+      const nx = -dy / L * w / 2, ny = dx / L * w / 2;
+      ctx.beginPath(); ctx.moveTo(o.x1 + nx, o.y1 + ny); ctx.lineTo(o.x2 + nx, o.y2 + ny); ctx.moveTo(o.x1 - nx, o.y1 - ny); ctx.lineTo(o.x2 - nx, o.y2 - ny); ctx.stroke();
+      // wandernder Glanz
+      const g = ((t * 0.35 + i * 0.37) % 1.6) - 0.3;
+      if (g > 0 && g < 1) {
+        ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = w * 0.6;
+        const a = Math.max(0, g - 0.08), b = Math.min(1, g + 0.08);
+        ctx.beginPath(); ctx.moveTo(o.x1 + dx * a, o.y1 + dy * a); ctx.lineTo(o.x1 + dx * b, o.y1 + dy * b); ctx.stroke();
+      }
+      ctx.restore();
+    }
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < objs.length; i++) {
@@ -208,6 +240,23 @@
           ctx.strokeStyle = `rgba(220,255,255,${0.7 * a})`; ctx.lineWidth = 1.5;
           ctx.beginPath(); ctx.moveTo(x - 6 * a, y); ctx.lineTo(x + 6 * a, y); ctx.moveTo(x, y - 6 * a); ctx.lineTo(x, y + 6 * a); ctx.stroke();
         }
+      } else if (o.type === 'band') {
+        // Gummiband: schwingt nach einem Treffer
+        const fl = fx ? fx.flashOf(i) : 0;
+        const dx = o.x2 - o.x1, dy = o.y2 - o.y1, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+        const amp = fl * Math.min(26, L * 0.12) * Math.sin(t * 55);
+        const cx = (o.x1 + o.x2) / 2 + nx * amp * 2, cy = (o.y1 + o.y2) / 2 + ny * amp * 2;
+        const w = o.t || 10;
+        const path = () => { ctx.beginPath(); ctx.moveTo(o.x1, o.y1); ctx.quadraticCurveTo(cx, cy, o.x2, o.y2); };
+        ctx.save(); ctx.globalCompositeOperation = 'source-over';
+        neonPath(ctx, NEON.band, w * 0.75, 1, path);
+        ctx.setLineDash([3, 7]); ctx.lineDashOffset = -t * 20; ctx.strokeStyle = 'rgba(255,240,200,0.7)'; ctx.lineWidth = 1.5;
+        path(); ctx.stroke(); ctx.setLineDash([]);
+        for (const [px, py] of [[o.x1, o.y1], [o.x2, o.y2]]) { // Pfosten
+          ctx.fillStyle = '#1a0d04'; ctx.beginPath(); ctx.arc(px, py, w * 0.7 + 3, 0, 7); ctx.fill();
+          ctx.strokeStyle = NEON.band; ctx.lineWidth = 2.5; glow(ctx, NEON.band, 10); ctx.stroke(); noGlow(ctx);
+        }
+        ctx.restore();
       } else if (o.type === 'bumper') {
         const fl = fx ? fx.flashOf(i) : 0;
         const r = (o.r || 24) * (1 + fl * 0.18);
@@ -290,7 +339,7 @@
       }
       ctx.save(); ctx.setTransform(1, 0, 0, 1, v.sx, v.sy); ctx.drawImage(cache.c, 0, 0); ctx.restore();
     } else drawStatic(ctx, map, v ? v.scale : 1);
-    drawDynamic(ctx, map, t, opts.fx);
+    drawDynamic(ctx, map, t, opts.fx, opts.glass);
   }
 
   // ------------------------------------------------------------ Bälle & Schweife
@@ -322,6 +371,23 @@
   /** Pucks: Farbe & Stil zeigen das Gewicht (grün leicht, gelb mittel, rot schwer) */
   function drawPucks(ctx, pucks, t) {
     if (!pucks) return;
+    // Felder zuerst (unter den Pucks)
+    for (const q of pucks) {
+      if (!q.alive || !q.f) continue;
+      const F = P.config.pucks[q.f], col = FIELD_COL[q.f], R = F.radius;
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const g = ctx.createRadialGradient(q.x, q.y, q.r, q.x, q.y, R);
+      g.addColorStop(0, q.f === 'repel' ? 'rgba(255,154,60,0.16)' : 'rgba(195,107,255,0.18)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, R, 0, 7); ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+      for (let i = 0; i < 3; i++) {
+        let f = (t * 0.5 + i / 3) % 1; if (q.f === 'attract') f = 1 - f; // Gravitation: Ringe laufen nach innen, Abstoßung: nach außen
+        ctx.globalAlpha = 0.45 * Math.sin(f * Math.PI);
+        ctx.beginPath(); ctx.arc(q.x, q.y, q.r + (R - q.r) * f, 0, 7); ctx.stroke();
+      }
+      ctx.globalAlpha = 0.25; ctx.setLineDash([4, 8]); ctx.beginPath(); ctx.arc(q.x, q.y, R, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+      ctx.restore();
+    }
     for (const q of pucks) {
       if (!q.alive) continue;
       const col = PUCK_COL[q.c] || '#fff', r = q.r;
@@ -347,6 +413,19 @@
       } else {
         ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 4 + q.x);
         ctx.beginPath(); ctx.arc(q.x, q.y, r * 0.25, 0, 7); ctx.fill();
+      }
+      if (q.f) { // Feld-Symbol: rotierende Bögen (Gravitation) bzw. Striche nach außen (Abstoßung)
+        const fc = FIELD_COL[q.f]; ctx.globalAlpha = 1; ctx.strokeStyle = fc; ctx.lineWidth = 2; glow(ctx, fc, 12);
+        ctx.beginPath(); ctx.arc(q.x, q.y, r + 4, 0, 7); ctx.stroke();
+        if (q.f === 'attract') {
+          for (let k = 0; k < 3; k++) { const a = -t * 3 + k * 2.094; ctx.beginPath(); ctx.arc(q.x, q.y, r + 9, a, a + 1.2); ctx.stroke(); }
+        } else {
+          for (let k = 0; k < 4; k++) {
+            const a = t * 0.8 + k * Math.PI / 2, d0 = r + 7 + ((t * 18) % 6), d1 = d0 + 7;
+            ctx.beginPath(); ctx.moveTo(q.x + Math.cos(a) * d0, q.y + Math.sin(a) * d0); ctx.lineTo(q.x + Math.cos(a) * d1, q.y + Math.sin(a) * d1); ctx.stroke();
+          }
+        }
+        noGlow(ctx);
       }
       ctx.restore();
     }
@@ -593,7 +672,7 @@
   // ------------------------------------------------------------ Sound (WebAudio, synthetisch)
   class SFX {
     constructor() {
-      this.ac = null; this.muted = localStorage.getItem('skillshot.mute') === '1'; this.tens = null;
+      this.ac = null; this.muted = localStorage.getItem('skillgolf.mute') === '1'; this.tens = null;
       const unlock = () => this.init();
       window.addEventListener('pointerdown', unlock); window.addEventListener('keydown', unlock);
     }
@@ -606,7 +685,7 @@
       const len = this.ac.sampleRate; this.noiseBuf = this.ac.createBuffer(1, len, this.ac.sampleRate);
       const d = this.noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     }
-    toggle() { this.muted = !this.muted; localStorage.setItem('skillshot.mute', this.muted ? '1' : '0'); if (this.master) this.master.gain.value = this.muted ? 0 : 0.45; return this.muted; }
+    toggle() { this.muted = !this.muted; localStorage.setItem('skillgolf.mute', this.muted ? '1' : '0'); if (this.master) this.master.gain.value = this.muted ? 0 : 0.45; return this.muted; }
     ok() { return this.ac && !this.muted; }
     tone(f, dur, type, vol, f2, delay) {
       if (!this.ok()) return;
@@ -645,6 +724,30 @@
     puck(v, m) { const vol = clamp(v / 1500, 0.04, 0.4); this.tone(clamp(420 / Math.pow(m, 0.35), 70, 600), 0.09 + Math.min(0.2, m * 0.012), 'triangle', vol, 60); this.noise(0.05, vol * 0.5, 1800, 300); }
     fanfare() { [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => { this.tone(f, 0.45, 'square', 0.07, null, i * 0.09); this.tone(f * 2, 0.3, 'triangle', 0.08, null, i * 0.09); }); }
     sand() { this.noise(0.25, 0.12, 900, 300); }
+    /** Neon-Röhre: leises Dauerbrummen (on=true/false) */
+    neonHum(on) {
+      if (!on || !this.ok()) { if (this.hum) { const h = this.hum; this.hum = null; try { h.g.gain.setTargetAtTime(0, this.ac.currentTime, 0.05); h.o.stop(this.ac.currentTime + 0.3); h.o2.stop(this.ac.currentTime + 0.3); } catch { /* egal */ } } return; }
+      if (this.hum) return;
+      const o = this.ac.createOscillator(), o2 = this.ac.createOscillator(), g = this.ac.createGain(), fl = this.ac.createBiquadFilter();
+      o.type = 'sawtooth'; o.frequency.value = 100; o2.type = 'square'; o2.frequency.value = 200;
+      fl.type = 'lowpass'; fl.frequency.value = 520; g.gain.value = 0;
+      o.connect(fl); o2.connect(fl); fl.connect(g); g.connect(this.master); o.start(); o2.start();
+      g.gain.setTargetAtTime(0.035, this.ac.currentTime, 0.2);
+      this.hum = { o, o2, g };
+    }
+    /** Neon flackert: elektrisches Knistern; dim = Röhre fast aus */
+    neonZap(strength) {
+      const k = strength == null ? 1 : strength;
+      this.noise(0.04 + Math.random() * 0.05, 0.10 * k, 4000 + Math.random() * 3000, 900, 0, 'highpass');
+      this.tone(100 + Math.random() * 20, 0.06, 'square', 0.05 * k, 60);
+      if (this.hum) { const t = this.ac.currentTime; this.hum.g.gain.setValueAtTime(0.004, t); this.hum.g.gain.setTargetAtTime(0.035, t + 0.05, 0.03); }
+    }
+    band(v) { const vol = clamp(v / 1400, 0.08, 0.35); this.tone(140, 0.28, 'sine', vol, 420); this.tone(70, 0.3, 'triangle', vol * 0.6, 200); }
+    glass() {
+      this.noise(0.5, 0.35, 9000, 2500, 0, 'highpass');
+      for (let i = 0; i < 7; i++) this.tone(2000 + Math.random() * 3500, 0.12 + Math.random() * 0.2, 'sine', 0.05 + Math.random() * 0.05, null, Math.random() * 0.25);
+      this.tone(160, 0.15, 'triangle', 0.15, 60);
+    }
     swallow() { this.tone(420, 0.6, 'sine', 0.22, 40); this.tone(90, 0.7, 'sawtooth', 0.08, 30); this.noise(0.5, 0.14, 2500, 120, 0, 'bandpass'); }
     tension(p) {
       if (!this.ok()) { this.stopTension(); return; }
@@ -767,10 +870,10 @@
       const mode = this.opts.shotMode ? this.opts.shotMode() : null;
       const kick = mode === 'ult';
       // volle Genauigkeit: gerundete Schlüssel ließen eine veraltete Vorschau stehen, obwohl mit dem exakten Winkel geschlagen wird
-      const key = ball.x + ',' + ball.y + ',' + this.angle + ',' + pw + ',' + maxTime + ',' + (pk ? pk.ver : 0) + ',' + mode;
+      const key = ball.x + ',' + ball.y + ',' + this.angle + ',' + pw + ',' + maxTime + ',' + (pk ? pk.ver : 0) + ',' + mode + ',' + (pk && pk.glass ? pk.glass.join('.') : '');
       if (key !== this.predKey || cm !== this.predCm) {
         const v = P.shotVelocity(this.angle, pw, mode);
-        this.pred = P.simulate(cm, ball.x, ball.y, v.vx, v.vy, { record: true, every: 2, maxTime, pucks: pk ? pk.list : null, kick });
+        this.pred = P.simulate(cm, ball.x, ball.y, v.vx, v.vy, { record: true, every: 2, maxTime, pucks: pk ? pk.list : null, glass: pk ? pk.glass : null, kick });
         this.predKey = key; this.predCm = cm;
       }
       return this.pred;
@@ -836,7 +939,7 @@
       this.local = !!opts.local;
       this.inputs = []; this.sent = 0; this.ended = !this.ult; this.endSent = false;
       this.steerSteps = this.ult ? Math.round(this.mc.steerTime / P.DT) : 0;
-      this.s = P.createState(from.x, from.y, vx, vy, opts.pucks || [], { kick: this.mode === 'ult', inputs: this.ult ? this.inputs : null });
+      this.s = P.createState(from.x, from.y, vx, vy, opts.pucks || [], { kick: this.mode === 'ult', inputs: this.ult ? this.inputs : null, glass: opts.glass });
       this.trail = [from.x, from.y]; this.fade = 0; this.events = []; this.zmask = this.zoneMask(); this.timeScale = 1;
       this.px = from.x; this.py = from.y; this.pp = this.s.pucks.map((q) => [q.x, q.y]);
       this.buffering = this.ult && !this.local; // Mitspieler: erst etwas Eingaben puffern
@@ -947,6 +1050,11 @@
           fx.spark(e.x, e.y, NEON.bumper, 30, 500, { life: 0.5 }); fx.spark(e.x, e.y, '#fff', 10, 300, { life: 0.3 });
           fx.ring(h.x, h.y, NEON.bumper, (h.r || 24) + 40, 0.45, 5);
           fx.shake(Math.min(9, 2 + v / 200)); if (sfx) sfx.bumper();
+        } else if (h.band) {
+          fx.flash(h.src);
+          fx.spark(e.x, e.y, NEON.band, 26, 420, { life: 0.45 }); fx.spark(e.x, e.y, '#fff', 8, 260, { life: 0.3 });
+          fx.ring(e.x, e.y, NEON.band, 40, 0.35, 4); fx.shake(Math.min(7, 2 + v / 250));
+          if (sfx) sfx.band(v);
         } else {
           const type = h.src != null && objs[h.src] ? objs[h.src].type : 'border';
           const c = type === 'wall' ? NEON.wall : type === 'block' ? NEON.block : NEON.border;
@@ -962,6 +1070,17 @@
         fx.spark(e.x, e.y, '#5aa0ff', 30, 260, { life: 0.7, kind: 'dot', drag: 4, size: 2.2 });
         fx.ring(e.x, e.y, PUCK_COL[e.c] || '#2f7bff', 40, 0.6, 3);
         if (sfx) sfx.splash();
+      } else if (e.type === 'glass') {
+        const o = objs[e.src];
+        if (o) { // Splitter entlang der ganzen Scheibe
+          for (let k = 0; k < 40; k++) {
+            const u = Math.random(), x = o.x1 + (o.x2 - o.x1) * u, y = o.y1 + (o.y2 - o.y1) * u;
+            fx.spark(x, y, Math.random() < 0.5 ? '#dff8ff' : '#8fe3ff', 1, 120 + Math.random() * 360, { life: 0.9, drag: 2.5, size: 1.5 + Math.random() * 2 });
+          }
+        }
+        fx.spark(e.x, e.y, '#ffffff', 30, 520, { life: 0.5 }); fx.ring(e.x, e.y, '#bfefff', 70, 0.4, 4);
+        fx.shake(6); fx.screen(0.2, '200,240,255');
+        if (sfx) sfx.glass();
       } else if (e.type === 'swallow') {
         const c = PUCK_COL[e.c] || '#fff';
         fx.spark(e.x, e.y, c, 26, 220, { life: 0.8, kind: 'dot', pull: { x: map.hole.x, y: map.hole.y, k: 1600 } });
@@ -1049,5 +1168,5 @@
 
 
 
-  window.Skill = { NEON, PUCK_COL, PUCK_NAME, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, FX, SFX, animFx, roundRect, powerColor };
+  window.Skill = { NEON, PUCK_COL, PUCK_NAME, FIELD_COL, FIELD_NAME, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, FX, SFX, animFx, roundRect, powerColor };
 })();

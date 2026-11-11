@@ -1,4 +1,4 @@
-/* Skillshot – Spiel-Client */
+/* Skillgolf – Spiel-Client */
 (function () {
   const P = window.SkillPhysics, S = window.Skill;
   const $ = (id) => document.getElementById(id);
@@ -9,6 +9,8 @@
   let pucks = [], pucksVer = 0;      // Server-Stand der Pucks
   let ultBy = null;                  // Spieler-ID, die gerade einen Ultimate-Schlag spielt
   function setPucks(list) { pucks = list || []; pucksVer++; }
+  let glass = [];                    // zerbrochene Glaswände (Objekt-Indizes), Server-Stand
+  function setGlass(list) { if (list) { glass = list; pucksVer++; } }
   const anims = new Map(); // playerId -> BallAnim
   const fx = new window.Skill.FX();
   const sfx = new window.Skill.SFX();
@@ -18,7 +20,7 @@
     return new Promise((resolve, reject) => {
       if (ws && ws.readyState === 1) return resolve();
       ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
-      ws.onopen = () => { send({ type: 'hello', name: myName(), avatar: myAvatar }); resolve(); };
+      ws.onopen = () => { send({ type: 'hello', name: myName() }); resolve(); };
       ws.onerror = () => reject(new Error('Keine Verbindung zum Server'));
       ws.onclose = () => {
         toast('Verbindung getrennt – verbinde neu …'); room = null; show('menu');
@@ -37,8 +39,8 @@
       case 'welcome': {
         myId = m.id; applyConfig(m.config);
         // neue Server-Version -> Seite neu laden, damit niemand mit altem Code spielt
-        const old = sessionStorage.getItem('skillshot.build');
-        sessionStorage.setItem('skillshot.build', m.build);
+        const old = sessionStorage.getItem('skillgolf.build');
+        sessionStorage.setItem('skillgolf.build', m.build);
         if (old && m.build && old !== m.build) location.reload();
         break;
       }
@@ -53,7 +55,7 @@
       case 'room': onRoom(m.room); break;
       case 'hole':
         if (m.config) P.configure(m.config);
-        map = m.map; cm = P.compile(map); anims.clear(); awaiting = false; ultBy = null; setPucks(m.pucks);
+        map = m.map; cm = P.compile(map); anims.clear(); awaiting = false; ultBy = null; glass = []; setGlass(m.glass); setPucks(m.pucks);
         $('overlay').classList.add('hidden');
         show('game');
         toast(`Bahn ${m.index + 1}/${m.total}: ${map.name}`, true);
@@ -104,7 +106,7 @@
     const mode = m.mode || (m.ult ? 'ult' : null);
     const ult = !!mode;
     const a = new S.BallAnim(P.withBalls(cm, m.others, m.from.x, m.from.y, m.magnets, m.magPucks), m.from, m.vx, m.vy, m.end, m.result,
-      { pucks: m.pucks0, mode, local: ult && m.id === myId });
+      { pucks: m.pucks0, glass: m.glass0, mode, local: ult && m.id === myId });
     a.player = p; a.final = ult ? null : m; a.born = performance.now(); a.seq = m.seq;
     anims.set(m.id, a);
     p.shots = m.shots;
@@ -116,13 +118,13 @@
       ultBy = m.id;
       if (mode === 'ult') p.ultUsed = true;
       if (m.id !== myId) toast(mode === 'ult' ? `⚡ ${p.name}: ULTIMATE BALL!` : `🌀 ${p.name}: SLING BALL`, mode === 'ult');
-    } else { p.ball = m.end; setPucks(m.pucks); }
+    } else { p.ball = m.end; setGlass(m.glass); setPucks(m.pucks); }
     renderHud(); renderBoard();
   }
 
   function onShotEnd(m) {
     if (ultBy === m.id) ultBy = null;
-    setPucks(m.pucks);
+    setGlass(m.glass); setPucks(m.pucks);
     const p = room && room.players.find((x) => x.id === m.id);
     if (!p || m.gone) { const a = anims.get(m.id); if (a) a.final = a.final || m; else if (m.seq) send({ type: 'animDone', seq: m.seq }); return; }
     p.ball = m.end; p.shots = m.shots;
@@ -253,55 +255,41 @@
     if (e.key === 'Enter' && $('game').classList.contains('active') && document.activeElement !== $('chatIn')) { $('chatIn').focus(); e.preventDefault(); }
   });
 
-  // ------------------------------------------------------------ Profilbilder
-  let myAvatar = localStorage.getItem('skillshot.avatar') || null;
-  const imgCache = new Map();
-  function img(url) {
-    if (!url) return null;
-    let i = imgCache.get(url);
-    if (!i) { i = new Image(); i.src = url; imgCache.set(url, i); }
-    return i;
-  }
-  // Standardbilder pro Platz: public/avatars/player1..8.(jpg|jpeg|png|webp)
-  let slotAvatars = {};
-  fetch('/api/avatars').then((r) => r.json()).then((a) => { slotAvatars = a || {}; renderBoard(); renderLobby(); }).catch(() => {});
-  function avatarOf(p) {
-    if (p.avatar) return p.avatar;
-    const i = room ? room.players.indexOf(p) : -1;
-    return i >= 0 ? slotAvatars[i + 1] || null : null;
-  }
-  function avatarHtml(p) {
-    const a = avatarOf(p);
-    return a ? `<span class="avatar" style="color:${p.color};background-image:url('${a}')"></span>`
-      : `<span class="dot" style="background:${p.color};color:${p.color}"></span>`;
-  }
-  function renderAvPrev() {
-    $('avPrev').style.backgroundImage = myAvatar ? `url('${myAvatar}')` : '';
-    $('avPrev').textContent = myAvatar ? '' : '🙂';
-  }
-  renderAvPrev();
-  $('btnAv').onclick = () => $('avFile').click();
-  $('btnAvClear').onclick = () => { myAvatar = null; localStorage.removeItem('skillshot.avatar'); renderAvPrev(); send({ type: 'avatar', data: null }); };
-  $('avFile').onchange = () => {
-    const f = $('avFile').files[0]; if (!f) return;
-    const im = new Image();
-    im.onload = () => {
-      const c = document.createElement('canvas'); c.width = c.height = 128;
-      const g = c.getContext('2d'), m = Math.min(im.width, im.height);
-      g.drawImage(im, (im.width - m) / 2, (im.height - m) / 2, m, m, 0, 0, 128, 128);
-      myAvatar = c.toDataURL('image/jpeg', 0.85);
-      try { localStorage.setItem('skillshot.avatar', myAvatar); } catch { /* voll */ }
-      renderAvPrev(); send({ type: 'avatar', data: myAvatar });
-      URL.revokeObjectURL(im.src);
-    };
-    im.onerror = () => toast('Bild konnte nicht gelesen werden');
-    im.src = URL.createObjectURL(f);
-    $('avFile').value = '';
-  };
+  function playerDot(p) { return `<span class="dot" style="background:${p.color};color:${p.color}"></span>`; }
 
   // ------------------------------------------------------------ Menü
-  $('name').value = localStorage.getItem('skillshot.name') || '';
-  $('name').addEventListener('change', () => localStorage.setItem('skillshot.name', myName()));
+  // Titel: Neon-Flackern mit Sound (Knistern + Brummen). Töne starten erst nach dem ersten Klick/Tastendruck (Browser-Regel).
+  (function neonTitle() {
+    const logo = document.querySelector('#menu .logo');
+    if (!logo) return;
+    const text = logo.textContent;
+    logo.innerHTML = [...text].map((c) => `<b class="ch">${c === " " ? "&nbsp;" : c}</b>`).join('');
+    const chars = [...logo.querySelectorAll('.ch')];
+    const active = () => $('menu').classList.contains('active');
+    function burst() {
+      if (!active()) { sfx.neonHum(false); return setTimeout(burst, 500); }
+      sfx.neonHum(true);
+      // Burst aus 2–5 schnellen Aussetzern, manchmal nur einzelne Buchstaben
+      const single = Math.random() < 0.4 ? chars[(Math.random() * chars.length) | 0] : null;
+      const n = 2 + ((Math.random() * 4) | 0);
+      let dly = 0;
+      for (let i = 0; i < n; i++) {
+        const off = 30 + Math.random() * 70, on = 25 + Math.random() * 60;
+        setTimeout(() => {
+          if (single) single.classList.add('off'); else logo.classList.add(Math.random() < 0.5 ? 'off' : 'dim');
+          sfx.neonZap(single ? 0.5 : 1);
+        }, dly);
+        dly += off;
+        setTimeout(() => { if (single) single.classList.remove('off'); else logo.classList.remove('off', 'dim'); }, dly);
+        dly += on;
+      }
+      setTimeout(burst, dly + 350 + Math.random() * 1100); // schneller als vorher (alle ~0,5–1,5 s)
+    }
+    setTimeout(burst, 400);
+  })();
+
+  $('name').value = localStorage.getItem('skillgolf.name') || '';
+  $('name').addEventListener('change', () => localStorage.setItem('skillgolf.name', myName()));
   const urlRoom = new URLSearchParams(location.search).get('room');
   if (urlRoom) {
     // Einladungslink: direkt beitreten (Name/Bild aus dem letzten Besuch, in der Lobby änderbar)
@@ -310,8 +298,8 @@
   }
 
   async function enter(msg) {
-    localStorage.setItem('skillshot.name', myName());
-    try { await connect(); send({ type: 'hello', name: myName(), avatar: myAvatar }); send(msg); }
+    localStorage.setItem('skillgolf.name', myName());
+    try { await connect(); send({ type: 'hello', name: myName() }); send(msg); }
     catch (e) { toast(e.message); }
   }
   $('btnCreate').onclick = () => enter({ type: 'create' });
@@ -332,7 +320,7 @@
     const ul = $('lobbyPlayers'); ul.innerHTML = '';
     for (const p of room.players) {
       const li = document.createElement('li');
-      li.innerHTML = `${avatarHtml(p)}<span></span>${p.id === room.hostId ? '<span class="crown">👑</span>' : ''}`;
+      li.innerHTML = `${playerDot(p)}<span></span>${p.id === room.hostId ? '<span class="crown">👑</span>' : ''}`;
       li.children[1].textContent = p.name + (p.id === myId ? ' (du)' : '');
       ul.appendChild(li);
     }
@@ -378,11 +366,10 @@
   }
   $('lobbyName').addEventListener('change', () => {
     $('name').value = $('lobbyName').value.trim().slice(0, 16);
-    localStorage.setItem('skillshot.name', myName());
+    localStorage.setItem('skillgolf.name', myName());
     send({ type: 'hello', name: myName() });
   });
   $('lobbyName').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('lobbyName').blur(); });
-  $('btnLobbyAv').onclick = () => $('avFile').click();
   $('btnStart').onclick = () => send({ type: 'start' });
   $('btnLeave').onclick = () => send({ type: 'leave' });
   $('btnCopy').onclick = () => {
@@ -461,7 +448,7 @@
     const b = $('board');
     const ps = room.players.slice().sort(rankSort);
     let h = '<h4>Rangliste <small class="muted">Punkte</small></h4>';
-    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<p class="muted">Schlag ${P.config.sling.shots.join(' & ')}: <b style="color:#00eaff">SLING BALL</b> – Ball mit der Maus lenken.<br>Schlag ${P.config.ultimate.afterShots + 1}: <b style="color:#ff2e88">ULTIMATE BALL</b> – Pucks wegsprengen, Zeitlupe, lenken.</p>${pointsHelp()}</div>`;
+    const legend = `<div class="legend"><h4>Pucks</h4>${['light', 'medium', 'heavy'].map((c) => `<span><i style="color:${S.PUCK_COL[c]};border-color:${S.PUCK_COL[c]}"></i>${S.PUCK_NAME[c]}</span>`).join('')}<br>${['attract', 'repel'].map((f) => `<span><i style="color:${S.FIELD_COL[f]};border-color:${S.FIELD_COL[f]};box-shadow:0 0 8px ${S.FIELD_COL[f]}"></i>${S.FIELD_NAME[f]}</span>`).join('<br>')}<br><span><i style="color:${S.NEON.band};border-color:${S.NEON.band};border-radius:2px"></i>Gummiband (verstärkt Abprall)</span><p class="muted">Schlag ${P.config.sling.shots.join(' & ')}: <b style="color:#00eaff">SLING BALL</b> – Ball mit der Maus lenken.<br>Schlag ${P.config.ultimate.afterShots + 1}: <b style="color:#ff2e88">ULTIMATE BALL</b> – Pucks wegsprengen, Zeitlupe, lenken.</p>${pointsHelp()}</div>`;
     for (const p of ps) {
       const a = anims.get(p.id);
       const rolling = a && !a.done;
@@ -474,7 +461,7 @@
       if (room.phase === 'playing' && !p.done && p.bonus) st += ` · <b style="color:#39ff8a">+${p.bonus} Bonus</b>`;
       if (p.magnet) st += ` · <b style="color:#ffe03a">🧲 ${p.magnetPuck != null ? 'Puck-Magnet' : 'Magnet'}</b>`;
       else if (room.phase === 'playing' && !p.done && P.config.magnet.usesPerHole > 0) st += ` · 🧲${p.magnetLeft || 0}`;
-      h += `<div class="bp ${p.id === myId ? 'me' : ''} ${isTurn ? 'turn' : ''}"><div class="top">${avatarHtml(p)}<span class="nm">${esc(p.name)}</span>${p.id === room.hostId ? '👑' : ''}<span class="tot">${total(p)}</span></div><div class="st">${st}</div></div>`;
+      h += `<div class="bp ${p.id === myId ? 'me' : ''} ${isTurn ? 'turn' : ''}"><div class="top">${playerDot(p)}<span class="nm">${esc(p.name)}</span>${p.id === room.hostId ? '👑' : ''}<span class="tot">${total(p)}</span></div><div class="st">${st}</div></div>`;
     }
     b.innerHTML = h + (room.phase === 'lobby' ? '' : legend);
   }
@@ -497,7 +484,7 @@
     for (let i = 0; i < n; i++) h += `<td>${room.playlist[i].par}</td>`;
     h += `<td></td><td>${parSum(n)}</td><td></td></tr>`;
     ps.forEach((p, k) => {
-      h += `<tr class="${final && k === 0 ? 'win' : ''}"><td>${avatarHtml(p)} ${esc(p.name)}</td>`;
+      h += `<tr class="${final && k === 0 ? 'win' : ''}"><td>${playerDot(p)} ${esc(p.name)}</td>`;
       for (let i = 0; i < n; i++) {
         const s = p.scores[i], par = room.playlist[i].par, pt = p.points ? p.points[i] : null;
         h += `<td class="${s == null ? '' : s < par ? 'under' : s > par ? 'over' : ''}">${pt == null ? '–' : `<b>${pt}</b><small class="stk">${s}</small>`}</td>`;
@@ -532,7 +519,7 @@
       for (const [, a] of anims) if (!a.done) return false;
       return true;
     },
-    getPucks: () => ({ list: pucks, ver: pucksVer }),
+    getPucks: () => ({ list: pucks, ver: pucksVer, glass }),
     shotMode: () => nextMode(me()),
     onShoot: (angle, power) => {
       // welche Magnete waren in meiner Vorschau? (Server ignoriert ganz frische, die ich noch nicht sehen konnte)
@@ -657,13 +644,15 @@
       view.fit(map.width, map.height);
       view.begin(fx);
       const ctx = view.ctx;
-      S.drawMap(ctx, map, t, { view, cache: true, fx });
+      // laufende Animation bestimmt Pucks + Glas, sonst Server-Stand
+      let live = null;
+      for (const [, a] of anims) if (!a.done && (!live || a.born > live.born)) live = a;
+      let broken = {};
+      if (live) broken = live.s.glass; else for (const i of glass) broken[i] = true;
+      S.drawMap(ctx, map, t, { view, cache: true, fx, glass: broken });
       const mine = me();
       // Leuchtschweife (Curve-Linien) aller Schläge
       for (const [, a] of anims) if (a.player) S.drawTrail(ctx, a.trail, a.player.color, a.done ? Math.max(0, 1 - a.fade / SPAWN_FADE) : 1);
-      // Pucks: aus der jüngsten laufenden Animation, sonst Server-Stand
-      let live = null;
-      for (const [, a] of anims) if (!a.done && (!live || a.born > live.born)) live = a;
       S.drawPucks(ctx, live ? live.pucks : pucks, t);
       // Magnetfelder
       const livePucks = live ? live.pucks : pucks;
@@ -701,7 +690,7 @@
         const a = anims.get(p.id);
         if (p.done && p.sunk && !(a && !a.ballDone)) continue; // im Loch
         const pos = ballPos(p);
-        S.drawBall(ctx, pos.x, pos.y, p.color, p.id === myId ? null : p.name, p.id === myId ? 1 : 0.85, img(avatarOf(p)));
+        S.drawBall(ctx, pos.x, pos.y, p.color, p.id === myId ? null : p.name, p.id === myId ? 1 : 0.85);
       }
       if (mine && mine.ball) {
         ctrl.update(dt, mine.ball);

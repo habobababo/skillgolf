@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⛳</text></svg>">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SKILLSHOT</title>
+<title>SKILLGOLF</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,19 +12,10 @@
 <!-- Startmenü -->
 <section id="menu" class="screen active">
   <div class="card hero">
-    <h1 class="logo">SKILLSHOT</h1>
+    <h1 class="logo">SKILLGOLF</h1>
     <p class="slogan">du huan</p>
     <p class="sub">Multiplayer-Minigolf · 7 Schläge pro Bahn</p>
     <label>Dein Name <input id="name" maxlength="16" placeholder="Spieler"></label>
-    <div class="avrow">
-      <div id="avPrev" class="avatar big"></div>
-      <div class="avbtns">
-        <button id="btnAv" class="small" type="button">Profilbild wählen</button>
-        <button id="btnAvClear" class="small ghost" type="button">Entfernen</button>
-        <span class="muted">erscheint auf deinem Ball</span>
-      </div>
-      <input type="file" id="avFile" accept="image/*" class="hidden">
-    </div>
     <button id="btnCreate" class="primary">Raum erstellen</button>
     <div class="row">
       <input id="joinCode" maxlength="4" placeholder="CODE" class="code">
@@ -49,7 +40,7 @@
     <div class="cols">
       <div>
         <h3>Spieler</h3>
-        <div class="row" style="margin-bottom:8px"><input id="lobbyName" maxlength="16" placeholder="Dein Name"><button id="btnLobbyAv" class="small ghost" type="button" title="Profilbild">🖼</button></div>
+        <div class="row" style="margin-bottom:8px"><input id="lobbyName" maxlength="16" placeholder="Dein Name"></div>
         <ul id="lobbyPlayers" class="plist"></ul>
         <button id="btnStart" class="primary">Spiel starten</button>
         <p id="waitHost" class="muted">Warte auf den Host …</p>

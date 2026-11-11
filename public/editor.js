@@ -1,4 +1,4 @@
-/* Skillshot – Map-Editor */
+/* Skillgolf – Map-Editor */
 (function () {
   const P = window.SkillPhysics, S = window.Skill;
   const $ = (id) => document.getElementById(id);
@@ -6,6 +6,8 @@
   const TOOLS = [
     { id: 'select', ic: '🖐', name: 'Auswahl', key: 'V' },
     { id: 'wall', ic: '📏', name: 'Wand', key: 'W' },
+    { id: 'band', ic: '🪢', name: 'Gummiband', key: 'G' },
+    { id: 'glass', ic: '🪟', name: 'Glaswand', key: 'K' },
     { id: 'block', ic: '🧱', name: 'Block', key: 'B' },
     { id: 'bumper', ic: '🔴', name: 'Bumper', key: 'O' },
     { id: 'sand', ic: '🏖', name: 'Sand', key: 'S' },
@@ -17,6 +19,8 @@
     { id: 'hole', ic: '⛳', name: 'Loch', key: 'H' },
   ];
   const RECT_TYPES = ['block', 'sand', 'ice', 'water', 'slope', 'boost'];
+  /** Wände und Gummibänder sind Strecken mit zwei Endpunkten */
+  const isSeg = (o) => o && (o.type === 'wall' || o.type === 'band' || o.type === 'glass');
   const NAMES = Object.fromEntries(TOOLS.map((t) => [t.id, t.name]));
 
   let map = blankMap();
@@ -28,7 +32,7 @@
   let testing = null;      // Test-Modus-Zustand
 
   function blankMap() {
-    return { name: 'Neue Bahn', difficulty: 'medium', author: localStorage.getItem('skillshot.name') || 'Anonym', par: 3, width: 1200, height: 800, start: { x: 120, y: 400 }, hole: { x: 1080, y: 400 }, objects: [] };
+    return { name: 'Neue Bahn', difficulty: 'medium', author: localStorage.getItem('skillgolf.name') || 'Anonym', par: 3, width: 1200, height: 800, start: { x: 120, y: 400 }, hole: { x: 1080, y: 400 }, objects: [] };
   }
 
   // ------------------------------------------------------------ Toast
@@ -42,7 +46,7 @@
   function doRedo() { if (!redo.length) return; undo.push(snapshot()); map = JSON.parse(redo.pop()); sel = null; changed(); }
 
   function changed(skipProps) {
-    localStorage.setItem('skillshot.editorDraft', snapshot());
+    localStorage.setItem('skillgolf.editorDraft', snapshot());
     if (!skipProps) { renderMapProps(); renderSelProps(); }
   }
 
@@ -79,14 +83,14 @@
     if (Math.hypot(x - map.start.x, y - map.start.y) < 20 + tol) return { kind: 'start' };
     for (let i = map.objects.length - 1; i >= 0; i--) {
       const o = map.objects[i];
-      if (o.type === 'wall') { if (distSeg(x, y, o) < (o.t || 14) / 2 + tol) return { kind: 'obj', i }; }
+      if (isSeg(o)) { if (distSeg(x, y, o) < (o.t || 14) / 2 + tol) return { kind: 'obj', i }; }
       else if (o.type === 'bumper') { if (Math.hypot(x - o.x, y - o.y) < o.r + tol) return { kind: 'obj', i }; }
       else if (x >= o.x - tol && x <= o.x + o.w + tol && y >= o.y - tol && y <= o.y + o.h + tol) return { kind: 'obj', i };
     }
     return null;
   }
   function handles(o) {
-    if (o.type === 'wall') return [{ x: o.x1, y: o.y1, h: 'p1' }, { x: o.x2, y: o.y2, h: 'p2' }];
+    if (isSeg(o)) return [{ x: o.x1, y: o.y1, h: 'p1' }, { x: o.x2, y: o.y2, h: 'p2' }];
     if (o.type === 'bumper') return [{ x: o.x + o.r, y: o.y, h: 'r' }];
     return [
       { x: o.x, y: o.y, h: 'nw' }, { x: o.x + o.w, y: o.y, h: 'ne' },
@@ -141,6 +145,8 @@
     pushHistory();
     let o;
     if (tool === 'wall') o = { type: 'wall', x1: sx, y1: sy, x2: sx, y2: sy, t: P.DEFAULTS.wall.t };
+    else if (tool === 'band') o = { type: 'band', x1: sx, y1: sy, x2: sx, y2: sy, t: P.DEFAULTS.band.t };
+    else if (tool === 'glass') o = { type: 'glass', x1: sx, y1: sy, x2: sx, y2: sy, t: P.DEFAULTS.glass.t };
     else if (tool === 'bumper') o = { type: 'bumper', x: sx, y: sy, r: P.DEFAULTS.bumper.r };
     else {
       o = { type: tool, x: sx, y: sy, w: 0, h: 0 };
@@ -165,7 +171,7 @@
       if (sel.kind !== 'obj') { map[sel.kind] = { x: snapV(O.x + dx, e), y: snapV(O.y + dy, e) }; }
       else {
         const o = map.objects[sel.i];
-        if (o.type === 'wall') { o.x1 = O.x1 + dx; o.y1 = O.y1 + dy; o.x2 = O.x2 + dx; o.y2 = O.y2 + dy; }
+        if (isSeg(o)) { o.x1 = O.x1 + dx; o.y1 = O.y1 + dy; o.x2 = O.x2 + dx; o.y2 = O.y2 + dy; }
         else { o.x = O.x + dx; o.y = O.y + dy; }
       }
       renderSelProps();
@@ -183,7 +189,7 @@
       renderSelProps();
     } else if (drag.mode === 'create') {
       const o = selObj();
-      if (o.type === 'wall') { o.x2 = sx; o.y2 = sy; }
+      if (isSeg(o)) { o.x2 = sx; o.y2 = sy; }
       else if (o.type === 'bumper') { o.r = Math.max(8, Math.round(Math.hypot(w.x - o.x, w.y - o.y))) || P.DEFAULTS.bumper.r; }
       else { o.x = Math.min(drag.ax, sx); o.y = Math.min(drag.ay, sy); o.w = Math.abs(sx - drag.ax); o.h = Math.abs(sy - drag.ay); }
     }
@@ -194,7 +200,7 @@
     if (drag.mode === 'create') {
       const o = selObj();
       // zu kleine Objekte verwerfen / Standardgröße
-      if (o.type === 'wall' && Math.hypot(o.x2 - o.x1, o.y2 - o.y1) < 4) { map.objects.pop(); sel = null; undo.pop(); }
+      if (isSeg(o) && Math.hypot(o.x2 - o.x1, o.y2 - o.y1) < 4) { map.objects.pop(); sel = null; undo.pop(); }
       else if (o.type === 'bumper' && o.r < 8) o.r = P.DEFAULTS.bumper.r;
       else if (RECT_TYPES.includes(o.type) && (o.w < 4 || o.h < 4)) { map.objects.pop(); sel = null; undo.pop(); }
     }
@@ -220,7 +226,7 @@
       const dx = e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0;
       const dy = e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0;
       pushHistory();
-      if (o.type === 'wall') { o.x1 += dx; o.x2 += dx; o.y1 += dy; o.y2 += dy; } else { o.x += dx; o.y += dy; }
+      if (isSeg(o)) { o.x1 += dx; o.x2 += dx; o.y1 += dy; o.y2 += dy; } else { o.x += dx; o.y += dy; }
       changed();
       return;
     }
@@ -236,7 +242,7 @@
     const o = selObj(); if (!o) return;
     pushHistory();
     const c = JSON.parse(JSON.stringify(o)), d = grid() * 2;
-    if (c.type === 'wall') { c.x1 += d; c.x2 += d; c.y1 += d; c.y2 += d; } else { c.x += d; c.y += d; }
+    if (isSeg(c)) { c.x1 += d; c.x2 += d; c.y1 += d; c.y2 += d; } else { c.x += d; c.y += d; }
     map.objects.push(c); sel = { kind: 'obj', i: map.objects.length - 1 }; changed();
   }
 
@@ -261,6 +267,8 @@
 
   const FIELDS = {
     wall: [['x1', 'X1'], ['y1', 'Y1'], ['x2', 'X2'], ['y2', 'Y2'], ['t', 'Dicke']],
+    band: [['x1', 'X1'], ['y1', 'Y1'], ['x2', 'X2'], ['y2', 'Y2'], ['t', 'Dicke']],
+    glass: [['x1', 'X1'], ['y1', 'Y1'], ['x2', 'X2'], ['y2', 'Y2'], ['t', 'Dicke']],
     block: [['x', 'X'], ['y', 'Y'], ['w', 'Breite'], ['h', 'Höhe']],
     bumper: [['x', 'X'], ['y', 'Y'], ['r', 'Radius']],
     sand: [['x', 'X'], ['y', 'Y'], ['w', 'Breite'], ['h', 'Höhe']],
@@ -342,7 +350,7 @@
     const probs = [];
     const R = P.BALL_R;
     const inSolid = (pt) => map.objects.some((o) => {
-      if (o.type === 'wall') return distSeg(pt.x, pt.y, o) < (o.t || 14) / 2 + R;
+      if (isSeg(o)) return distSeg(pt.x, pt.y, o) < (o.t || 14) / 2 + R;
       if (o.type === 'bumper') return Math.hypot(pt.x - o.x, pt.y - o.y) < o.r + R;
       if (o.type === 'block') return pt.x > o.x - R && pt.x < o.x + o.w + R && pt.y > o.y - R && pt.y < o.y + o.h + R;
       return false;
@@ -361,7 +369,7 @@
     const list = await refreshList();
     const slug = map.name.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     if (list.some((m) => m.id === 'custom:' + slug) && !confirm(`Eigene Map „${map.name}“ existiert bereits. Überschreiben?`)) return;
-    localStorage.setItem('skillshot.name', map.author);
+    localStorage.setItem('skillgolf.name', map.author);
     try {
       const r = await (await fetch('/api/maps', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(map) })).json();
       if (r.error) throw new Error(r.error);
@@ -391,7 +399,7 @@
   const ctrl = new S.ShotController(canvas, view, {
     fx, sfx, color: () => '#ffe03a', hoverPreview: true,
     canShoot: () => !!testing && !testing.anim && !testing.done,
-    getPucks: () => (testing ? { list: testing.pucks, ver: testing.pver } : null),
+    getPucks: () => (testing ? { list: testing.pucks, ver: testing.pver, glass: testing.glass } : null),
     shotMode: () => testMode(),
     onShoot: (angle, power) => {
       const mode = testMode();
@@ -399,7 +407,7 @@
       if (mode === 'ult') testing.ultUsed = true;
       testing.shots++;
       testing.from = { ...testing.ball };
-      testing.anim = new S.BallAnim(testing.cm, testing.ball, v.vx, v.vy, null, null, { pucks: testing.pucks, mode, local: true });
+      testing.anim = new S.BallAnim(testing.cm, testing.ball, v.vx, v.vy, null, null, { pucks: testing.pucks, glass: testing.glass, mode, local: true });
     },
   });
   function testMode() { return testing && !testing.done ? P.shotMode(testing.shots + 1, testing.ultUsed) : null; }
@@ -417,7 +425,7 @@
     sel = null; renderSelProps();
     const m = P.sanitizeMap(map);
     const tcm = P.compile(m);
-    testing = { cm: tcm, ball: { ...m.start }, shots: 0, anim: null, done: false, pucks: P.spawnPucks(tcm, (Math.random() * 2 ** 31) | 0), pver: 0, ultUsed: false };
+    testing = { cm: tcm, ball: { ...m.start }, shots: 0, anim: null, done: false, pucks: P.spawnPucks(tcm, (Math.random() * 2 ** 31) | 0), pver: 0, ultUsed: false, glass: [] };
     $('bTest').textContent = '■ Test beenden';
     $('testInfo').classList.remove('hidden');
     canvas.style.cursor = 'crosshair';
@@ -435,7 +443,7 @@
       T.ball = T.anim.pos;
       if (T.anim.done) {
         const r = T.anim.s.result;
-        T.pucks = P.exportPucks(T.anim.s); T.pver++;
+        T.pucks = P.exportPucks(T.anim.s); T.glass = P.exportGlass(T.anim.s); T.pver++;
         T.lastTrail = T.anim.trail; T.trailFade = 0;
         T.anim = null;
         if (r === 'water') { T.ball = T.from; toast('💦 Wasser – zurück'); }
@@ -469,7 +477,7 @@
     ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 2 / view.scale; ctx.setLineDash([6 / view.scale, 4 / view.scale]);
     ctx.beginPath();
     if (!o) ctx.arc(map[s.kind].x, map[s.kind].y, s.kind === 'hole' ? P.HOLE_R + 6 : 24, 0, 7);
-    else if (o.type === 'wall') {
+    else if (isSeg(o)) {
       const a = Math.atan2(o.y2 - o.y1, o.x2 - o.x1), t = (o.t || 14) / 2 + 4;
       const nx = -Math.sin(a) * t, ny = Math.cos(a) * t;
       ctx.moveTo(o.x1 + nx, o.y1 + ny); ctx.lineTo(o.x2 + nx, o.y2 + ny); ctx.moveTo(o.x1 - nx, o.y1 - ny); ctx.lineTo(o.x2 - nx, o.y2 - ny);
@@ -498,7 +506,9 @@
     fx.update(dt * ws);
     view.begin(fx);
     const ctx = view.ctx;
-    S.drawMap(ctx, map, t, { view, cache: false, fx });
+    let broken = null;
+    if (testing) { broken = {}; if (testing.anim) broken = testing.anim.s.glass; else for (const i of testing.glass) broken[i] = true; }
+    S.drawMap(ctx, map, t, { view, cache: false, fx, glass: broken });
     if (testing) {
       updateTest(dt);
       if (testing) {
@@ -531,7 +541,7 @@
 
   // ------------------------------------------------------------ Start
   try {
-    const d = localStorage.getItem('skillshot.editorDraft');
+    const d = localStorage.getItem('skillgolf.editorDraft');
     if (d) map = P.sanitizeMap(JSON.parse(d));
   } catch { /* leer */ }
   fetch('/api/config').then((r) => r.json()).then((c) => P.configure(c)).catch(() => {});

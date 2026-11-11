@@ -1,5 +1,5 @@
 {
- "author": "Skillshot",
+ "author": "Skillgolf",
  "width": 1200,
  "height": 800,
  "name": "Erste Schritte",
@@ -22,12 +22,12 @@
    "h": 450
   },
   {
-   "type": "wall",
+   "type": "band",
    "x1": 1060,
    "y1": 800,
    "x2": 1200,
    "y2": 660,
-   "t": 14
+   "t": 10
   },
   {
    "type": "bumper",

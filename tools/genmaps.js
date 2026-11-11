@@ -4,6 +4,8 @@ const fs = require('fs'), path = require('path');
 const W = (x1, y1, x2, y2, t = 14) => ({ type: 'wall', x1, y1, x2, y2, t });
 const R = (type, x, y, w, h, extra) => Object.assign({ type, x, y, w, h }, extra || {});
 const Bm = (x, y, r = 24) => ({ type: 'bumper', x, y, r });
+const G = (x1, y1, x2, y2, t = 10) => ({ type: 'band', x1, y1, x2, y2, t }); // elastisches Gummiband
+const Gl = (x1, y1, x2, y2, t = 8) => ({ type: 'glass', x1, y1, x2, y2, t }); // Glaswand: zerbricht bei Tempo
 
 /** Wasser überall außer in den angegebenen Land-Rechtecken [x,y,w,h] */
 function waterExcept(Wd, Hd, land) {
@@ -24,45 +26,46 @@ function waterExcept(Wd, Hd, land) {
   return out;
 }
 
-const base = { author: 'Skillshot', width: 1200, height: 800 };
+const base = { author: 'Skillgolf', width: 1200, height: 800 };
 const maps = {
   // ---------------------------------------------------------------- leicht
   '01-erste-schritte': { name: 'Erste Schritte', difficulty: 'easy', par: 2, start: { x: 120, y: 625 }, hole: { x: 1000, y: 200 }, objects: [
-    R('block', 0, 0, 800, 450), W(1060, 800, 1200, 660), Bm(1000, 560, 20)] },
+    R('block', 0, 0, 800, 450), G(1060, 800, 1200, 660), Bm(1000, 560, 20)] },
   '02-sandkasten': { name: 'Sandkasten', difficulty: 'easy', par: 3, start: { x: 120, y: 400 }, hole: { x: 1080, y: 400 }, objects: [
     R('sand', 280, 90, 200, 200), R('sand', 280, 510, 200, 200), R('sand', 830, 330, 130, 140),
     R('block', 560, 250, 80, 300), Bm(760, 170, 22), Bm(760, 630, 22),
-    W(1100, 0, 1200, 100), W(1100, 800, 1200, 700)] },
+    G(1100, 0, 1200, 100), G(1100, 800, 1200, 700)] },
 
   // ---------------------------------------------------------------- mittel
   '03-bumper-allee': { name: 'Bumper-Allee', difficulty: 'medium', par: 3, start: { x: 100, y: 700 }, hole: { x: 1100, y: 110 }, objects: [
     R('water', 0, 0, 230, 230), R('sand', 980, 210, 220, 70),
     Bm(350, 450, 26), Bm(550, 300, 26), Bm(550, 600, 26), Bm(750, 450, 26), Bm(950, 300, 26), Bm(750, 170, 26), Bm(950, 600, 26),
-    W(1000, 0, 1000, 120)] },
+    Gl(1000, 0, 1000, 120), Gl(1000, 120, 1200, 120)] },
   '04-eisbahn': { name: 'Eisbahn', difficulty: 'medium', par: 3, start: { x: 100, y: 400 }, hole: { x: 1090, y: 400 }, objects: [
     R('block', 0, 0, 1200, 120), R('block', 0, 680, 1200, 120),
     R('ice', 220, 120, 760, 560), R('water', 500, 320, 200, 160), R('water', 1165, 250, 35, 300),
-    Bm(860, 250, 20), Bm(860, 550, 20)] },
+    Bm(860, 250, 20), Bm(860, 550, 20), Gl(1010, 330, 1010, 470)] },
   '05-rampen': { name: 'Rampen', difficulty: 'medium', par: 4, start: { x: 100, y: 650 }, hole: { x: 150, y: 150 }, objects: [
     R('block', 0, 300, 950, 200),
     R('slope', 400, 500, 300, 300, { angle: 180, strength: 380 }),
     R('boost', 975, 380, 200, 90, { angle: 270, strength: 2400 }),
     R('water', 430, 0, 280, 80),
     R('slope', 400, 80, 340, 220, { angle: 270, strength: 260 }),
-    W(1100, 800, 1200, 700), W(1100, 0, 1200, 100)] },
+    G(1100, 800, 1200, 700), G(1100, 0, 1200, 100)] },
   '06-labyrinth': { name: 'Labyrinth', difficulty: 'medium', par: 5, start: { x: 125, y: 100 }, hole: { x: 1100, y: 700 }, objects: [
     W(250, 0, 250, 580, 16), W(500, 220, 500, 800, 16), W(750, 0, 750, 580, 16), W(1000, 220, 1000, 800, 16),
     R('sand', 540, 320, 170, 160), Bm(375, 400, 20), Bm(875, 400, 20),
-    W(0, 700, 100, 800), W(400, 0, 500, 100), W(650, 800, 750, 700), W(900, 0, 1000, 100)] },
+    G(0, 700, 100, 800), G(400, 0, 500, 100), G(650, 800, 750, 700), G(900, 0, 1000, 100)] },
   '08-zickzack': { name: 'Zickzack', difficulty: 'medium', par: 3, start: { x: 110, y: 690 }, hole: { x: 1090, y: 110 }, objects: [
     W(300, 800, 300, 330, 16), W(600, 0, 600, 470, 16), W(900, 800, 900, 330, 16),
-    W(300, 330, 380, 250), W(600, 470, 520, 550), W(900, 330, 980, 250),
+    G(300, 330, 380, 250), G(600, 470, 520, 550), G(900, 330, 980, 250),
     R('sand', 640, 600, 220, 160), R('ice', 330, 40, 240, 200), Bm(750, 250, 22), Bm(450, 600, 22)] },
   '09-sandsturm': { name: 'Sandsturm', difficulty: 'medium', par: 3, start: { x: 100, y: 120 }, hole: { x: 1080, y: 680 }, objects: [
     R('sand', 220, 0, 160, 330), R('sand', 220, 470, 160, 330), R('sand', 520, 200, 160, 400),
     R('sand', 820, 0, 160, 330), R('sand', 820, 470, 160, 330),
     R('slope', 380, 0, 140, 800, { angle: 90, strength: 180 }), R('slope', 680, 0, 140, 800, { angle: 270, strength: 180 }),
-    R('boost', 1000, 360, 160, 80, { angle: 90, strength: 1600 }), Bm(1100, 520, 20)] },
+    R('boost', 1000, 360, 160, 80, { angle: 90, strength: 1600 }), Bm(1100, 520, 20),
+    Gl(980, 580, 1200, 580)] },
 
   // ---------------------------------------------------------------- hart
   '07-skillshot': { name: 'Skillshot', difficulty: 'hard', par: 3, start: { x: 120, y: 400 }, hole: { x: 1070, y: 400 }, objects: [
@@ -117,7 +120,7 @@ const maps = {
   '16-tresor': { name: 'Tresor', difficulty: 'hard', par: 4, start: { x: 150, y: 400 }, hole: { x: 900, y: 400 }, objects: [
     R('ice', 0, 60, 1200, 680), R('water', 0, 0, 1200, 60), R('water', 0, 740, 1200, 60),
     R('block', 420, 200, 70, 400),
-    W(820, 320, 980, 320, 12), W(820, 320, 820, 480, 12), W(820, 480, 980, 480, 12),
+    W(820, 320, 980, 320, 12), Gl(820, 320, 820, 480, 10), W(820, 480, 980, 480, 12),
     W(980, 320, 980, 372, 12), W(980, 428, 980, 480, 12),
     Bm(640, 180, 22), Bm(640, 620, 22)] },
 };

@@ -1,5 +1,5 @@
 {
- "author": "Skillshot",
+ "author": "Skillgolf",
  "width": 1200,
  "height": 800,
  "name": "Bumper-Allee",
@@ -71,12 +71,20 @@
    "r": 26
   },
   {
-   "type": "wall",
+   "type": "glass",
    "x1": 1000,
    "y1": 0,
    "x2": 1000,
    "y2": 120,
-   "t": 14
+   "t": 8
+  },
+  {
+   "type": "glass",
+   "x1": 1000,
+   "y1": 120,
+   "x2": 1200,
+   "y2": 120,
+   "t": 8
   }
  ]
 }

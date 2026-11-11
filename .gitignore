@@ -1,7 +1,4 @@
 node_modules/
 maps/custom/*.json
 .env
-# Profilbilder (echte Fotos) nicht veröffentlichen
-public/avatars/*
-!public/avatars/.gitkeep
 config.json

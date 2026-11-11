@@ -1,5 +1,5 @@
 {
- "author": "Skillshot",
+ "author": "Skillgolf",
  "width": 1200,
  "height": 800,
  "name": "Zickzack",
@@ -39,28 +39,28 @@
    "t": 16
   },
   {
-   "type": "wall",
+   "type": "band",
    "x1": 300,
    "y1": 330,
    "x2": 380,
    "y2": 250,
-   "t": 14
+   "t": 10
   },
   {
-   "type": "wall",
+   "type": "band",
    "x1": 600,
    "y1": 470,
    "x2": 520,
    "y2": 550,
-   "t": 14
+   "t": 10
   },
   {
-   "type": "wall",
+   "type": "band",
    "x1": 900,
    "y1": 330,
    "x2": 980,
    "y2": 250,
-   "t": 14
+   "t": 10
   },
   {
    "type": "sand",

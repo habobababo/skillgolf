@@ -1,5 +1,5 @@
 {
- "author": "Skillshot",
+ "author": "Skillgolf",
  "width": 1200,
  "height": 800,
  "name": "Tresor",
@@ -51,12 +51,12 @@
    "t": 12
   },
   {
-   "type": "wall",
+   "type": "glass",
    "x1": 820,
    "y1": 320,
    "x2": 820,
    "y2": 480,
-   "t": 12
+   "t": 10
   },
   {
    "type": "wall",

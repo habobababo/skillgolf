@@ -1,5 +1,5 @@
 /*
- * Skillshot – gemeinsame, deterministische Physik.
+ * Skillgolf – gemeinsame, deterministische Physik.
  * Läuft identisch im Browser (Vorschau + Animation) und auf dem Server (autoritatives Ergebnis).
  * In der Simulation werden nur + - * / und sqrt verwendet -> reproduzierbar.
  */
@@ -39,6 +39,13 @@
     },
     bounce: {              // Rückprall-Faktor (1 = verlustfrei)
       wall: 0.78, block: 0.72, border: 0.75, bumper: 1.05, bumperKick: 260, ball: 0.55,
+      band: 1.3,           // Gummiband: über 1 = Ball kommt schneller zurück, als er kam
+      bandKick: 140,       // zusätzlicher Schwung vom Gummiband
+    },
+    glass: {               // Glaswände: zerbrechen bei genug Tempo, sonst prallt man ab
+      breakSpeed: 1100,    // ab diesem Aufprall-Tempo (px/s) zerbricht das Glas
+      keep: 0.55,          // Anteil des Tempos, der nach dem Durchbrechen bleibt
+      bounce: 0.6,         // Rückprall, wenn das Glas hält
     },
     slopeFactor: 1,        // Multiplikator für alle Hänge
     boostFactor: 1,        // Multiplikator für alle Boosts
@@ -56,6 +63,8 @@
       light: { mass: 0.6, radius: 11, share: 0.4 },
       medium: { mass: 2.5, radius: 13, share: 0.35 },
       heavy: { mass: 14, radius: 16, share: 0.25 },
+      attract: { count: 2, radius: 230, strength: 900 },   // Gravitations-Pucks: ziehen den Ball an
+      repel: { count: 2, radius: 210, strength: 1100 },    // Abstoß-Pucks: drücken den Ball weg
     },
     ultimate: {            // „next BALL is ULTIMATE BALL“
       afterShots: 5,       // nach so vielen Schlägen ist der nächste Schlag erzwungen Ultimate (0 = aus)
@@ -97,6 +106,8 @@
   // Standardwerte für neue Objekte im Editor
   const DEFAULTS = {
     wall: { t: 14 },
+    band: { t: 10 },
+    glass: { t: 8 },
     bumper: { r: 24 },
     slope: { angle: 0, strength: 320 },
     boost: { angle: 0, strength: 2400 },
@@ -139,6 +150,9 @@
     c.pucks.count = Math.round(lim(c.pucks.count, 10, 60));
     for (const k of ['light', 'medium', 'heavy']) { c.pucks[k].mass = lim(c.pucks[k].mass, 0.05, 1000); c.pucks[k].radius = lim(c.pucks[k].radius, 4, 60); }
     c.pucks.ballMass = lim(c.pucks.ballMass, 0.05, 1000);
+    for (const k of ['attract', 'repel']) { c.pucks[k].count = Math.round(lim(c.pucks[k].count, 0, 30)); c.pucks[k].radius = lim(c.pucks[k].radius, 10, 3000); c.pucks[k].strength = lim(c.pucks[k].strength, 0, 20000); }
+    c.glass.breakSpeed = lim(c.glass.breakSpeed, 0, 30000); c.glass.keep = lim(c.glass.keep, 0, 1); c.glass.bounce = lim(c.glass.bounce, 0, 2);
+    c.bounce.band = lim(c.bounce.band, 0, 3); c.bounce.bandKick = lim(c.bounce.bandKick, 0, 3000);
     c.ultimate.afterShots = Math.round(lim(c.ultimate.afterShots, 0, 50));
     c.ultimate.slowmo = lim(c.ultimate.slowmo, 0.05, 1);
     c.ultimate.launchFactor = lim(c.ultimate.launchFactor, 0.05, 3);
@@ -216,6 +230,18 @@
             rad: num(o.t, DEFAULTS.wall.t) / 2, e: K.bounce.wall,
           });
           break;
+        case 'band': // elastisches Gummiband: wie eine Wand, aber verstärkt den Abprall
+          solids.push({
+            kind: 'seg', ax: num(o.x1, 0), ay: num(o.y1, 0), bx: num(o.x2, 0), by: num(o.y2, 0),
+            rad: num(o.t, DEFAULTS.band.t) / 2, e: K.bounce.band, kick: K.bounce.bandKick, band: true,
+          });
+          break;
+        case 'glass': // Glaswand: zerbricht bei genug Tempo (Zustand im Schlag-Zustand: s.glass)
+          solids.push({
+            kind: 'seg', ax: num(o.x1, 0), ay: num(o.y1, 0), bx: num(o.x2, 0), by: num(o.y2, 0),
+            rad: num(o.t, DEFAULTS.glass.t) / 2, e: K.glass.bounce, glass: true,
+          });
+          break;
         case 'block': {
           const r = rectOf(o);
           solids.push({ kind: 'rect', ...r, e: K.bounce.block });
@@ -280,12 +306,15 @@
     const s = {
       x, y, vx, vy, t: 0, n: 0, slow: 0, done: false, allDone: false, result: null, sx: x, sy: y,
       nb: 0, bounce: false, hitV: 0, hit: null, pucks: pucks ? clonePucks(pucks) : [], inputs: opts.inputs || null, pevents: [],
+      glass: {},           // zerbrochene Glaswände: Objekt-Index -> true
     };
+    if (opts.glass) for (const i of opts.glass) s.glass[i] = true;
     if (opts.kick) ultimateKick(s);
     return s;
   }
-  function clonePucks(p) { return p.map((q) => ({ x: q.x, y: q.y, vx: q.vx || 0, vy: q.vy || 0, r: q.r, m: q.m, c: q.c, alive: q.alive !== false })); }
-  function exportPucks(s) { return s.pucks.map((q) => ({ x: q.x, y: q.y, r: q.r, m: q.m, c: q.c, alive: q.alive })); }
+  function clonePucks(p) { return p.map((q) => ({ x: q.x, y: q.y, vx: q.vx || 0, vy: q.vy || 0, r: q.r, m: q.m, c: q.c, f: q.f || null, alive: q.alive !== false })); }
+  function exportGlass(s) { return Object.keys(s.glass).map(Number).sort((a, b) => a - b); }
+  function exportPucks(s) { return s.pucks.map((q) => (q.f ? { x: q.x, y: q.y, r: q.r, m: q.m, c: q.c, f: q.f, alive: q.alive } : { x: q.x, y: q.y, r: q.r, m: q.m, c: q.c, alive: q.alive })); }
 
   /** Ultimate: alle Pucks vom Ball wegschleudern (schwere weniger) */
   function ultimateKick(s) {
@@ -323,9 +352,10 @@
   }
 
   /** Körper b (Radius r) gegen feste Objekte; rec = Treffer für Effekte merken */
-  function collideStatic(cm, b, r, rec) {
+  function collideStatic(cm, b, r, rec, st) {
     for (let i = 0; i < cm.solids.length; i++) {
       const o = cm.solids[i];
+      if (o.glass && st && st.glass[o.src]) continue; // schon zerbrochen
       let nx = 0, ny = 0, pen = 0;
       if (o.kind === 'seg') {
         const dx = o.bx - o.ax, dy = o.by - o.ay;
@@ -361,6 +391,16 @@
           if (tp < m) { m = tp; nx = 0; ny = -1; }
           if (bt < m) { m = bt; nx = 0; ny = 1; }
           pen = m + r;
+        }
+      }
+      if (o.glass && st) {
+        // Glas: zerbricht, wenn der Körper schnell genug hineinfliegt (zählt nur das Tempo auf das Glas zu)
+        const vin = -(b.vx * nx + b.vy * ny);
+        if (vin >= K.glass.breakSpeed) {
+          st.glass[o.src] = true;
+          b.vx *= K.glass.keep; b.vy *= K.glass.keep;
+          st.pevents.push({ type: 'glass', src: o.src, x: b.x - nx * r, y: b.y - ny * r, v: vin });
+          continue;
         }
       }
       b.x += nx * pen; b.y += ny * pen;
@@ -456,6 +496,16 @@
           if (md < MR && md > 1e-6) { const f = MS * (1 - md / MR); ex += mx / md * f; ey += my / md * f; }
         }
       }
+      // Feld-Pucks: Gravitation (zieht an) bzw. Abstoßung (drückt weg)
+      for (let i = 0; i < s.pucks.length; i++) {
+        const q = s.pucks[i];
+        if (!q.f || !q.alive) continue;
+        const F = q.f === 'repel' ? K.pucks.repel : K.pucks.attract;
+        const mx = q.x - s.x, my = q.y - s.y, md2 = mx * mx + my * my;
+        if (md2 >= F.radius * F.radius || md2 < 1e-12) continue;
+        const md = Math.sqrt(md2), u = 1 - md / F.radius, f = F.strength * u * u * (q.f === 'repel' ? -1 : 1);
+        ex += mx / md * f; ey += my / md * f;
+      }
       if (cm.magPucks) { // magnetisierte Pucks ziehen den Ball an, auch während sie selbst rollen
         const MR = K.magnet.radius, MS = K.magnet.strength;
         for (let i = 0; i < cm.magPucks.length; i++) {
@@ -483,12 +533,12 @@
     const sdt = DT / n;
     const ballSolid = s.result !== 'sunk' && s.result !== 'water';
     for (let k = 0; k < n; k++) {
-      if (!s.done) { s.x += s.vx * sdt; s.y += s.vy * sdt; collideStatic(cm, s, BR, true); }
+      if (!s.done) { s.x += s.vx * sdt; s.y += s.vy * sdt; collideStatic(cm, s, BR, true, s); }
       for (let i = 0; i < s.pucks.length; i++) {
         const q = s.pucks[i];
         if (!q.alive || (q.vx === 0 && q.vy === 0)) continue;
         q.x += q.vx * sdt; q.y += q.vy * sdt;
-        collideStatic(cm, q, q.r, false);
+        collideStatic(cm, q, q.r, false, s);
       }
       if (ballSolid) {
         for (let i = 0; i < s.pucks.length; i++) {
@@ -579,7 +629,7 @@
     if (ppaths) for (let i = 0; i < s.pucks.length; i++) { const q = s.pucks[i]; ppaths[i].push(q.x, q.y); }
     return {
       x: s.x, y: s.y, result: s.done ? s.result : 'cut', steps: s.n, time: s.t, ballTime: ballDoneAt < 0 ? s.t : ballDoneAt,
-      points, bounces, ppaths, pucks: exportPucks(s), nb: s.nb,
+      points, bounces, ppaths, pucks: exportPucks(s), glass: exportGlass(s), nb: s.nb,
     };
   }
 
@@ -632,6 +682,17 @@
       if (t.x !== x || t.y !== y) continue;
       out.push({ x: Math.round(x), y: Math.round(y), r, m, c, alive: true });
     }
+    // einige Pucks bekommen ein Feld: Gravitation oder Abstoßung (nicht in Loch- oder Abschlagnähe)
+    const cand = out.map((q, i) => i).filter((i) => {
+      const q = out[i];
+      return (q.x - cm.hole.x) ** 2 + (q.y - cm.hole.y) ** 2 > 220 * 220 && (q.x - cm.start.x) ** 2 + (q.y - cm.start.y) ** 2 > 220 * 220;
+    });
+    for (const f of ['attract', 'repel']) {
+      for (let k = 0; k < PK[f].count && cand.length; k++) {
+        const j = Math.floor(R() * cand.length), i = cand.splice(j, 1)[0];
+        out[i].f = f;
+      }
+    }
     return out;
   }
 
@@ -652,7 +713,7 @@
       objects: [],
     };
     const keys = {
-      wall: ['x1', 'y1', 'x2', 'y2', 't'], block: ['x', 'y', 'w', 'h'], bumper: ['x', 'y', 'r'],
+      wall: ['x1', 'y1', 'x2', 'y2', 't'], band: ['x1', 'y1', 'x2', 'y2', 't'], glass: ['x1', 'y1', 'x2', 'y2', 't'], block: ['x', 'y', 'w', 'h'], bumper: ['x', 'y', 'r'],
       sand: ['x', 'y', 'w', 'h'], ice: ['x', 'y', 'w', 'h'], water: ['x', 'y', 'w', 'h'],
       slope: ['x', 'y', 'w', 'h', 'angle', 'strength'], boost: ['x', 'y', 'w', 'h', 'angle', 'strength'],
     };
@@ -661,6 +722,8 @@
       const c = { type: o.type };
       for (const k of keys[o.type]) c[k] = Math.round(num(o[k], 0) * 100) / 100;
       if (o.type === 'wall' && !c.t) c.t = DEFAULTS.wall.t;
+      if (o.type === 'band' && !c.t) c.t = DEFAULTS.band.t;
+      if (o.type === 'glass' && !c.t) c.t = DEFAULTS.glass.t;
       if (o.type === 'bumper' && !c.r) c.r = DEFAULTS.bumper.r;
       if (o.type === 'slope' || o.type === 'boost') {
         if (!o.strength && o.strength !== 0) c.strength = DEFAULTS[o.type].strength;
@@ -673,7 +736,7 @@
 
   const api = {
     DT, DEFAULTS, DEFAULT_CONFIG,
-    configure, compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap, spawnPucks, exportPucks, modeCfg, shotMode,
+    configure, compile, withBalls, createState, step, simulate, shotVelocity, sanitizeMap, spawnPucks, exportPucks, exportGlass, modeCfg, shotMode,
     holePoints, shotBonus, dsin, dcos,
   };
   // Live-Werte (ändern sich mit configure)

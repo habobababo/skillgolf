@@ -109,17 +109,6 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, { ok: true });
   }
 
-  if (p === '/api/avatars') {
-    // Standard-Profilbilder pro Spielerplatz: public/avatars/player<N>.<jpg|jpeg|png|webp>
-    const out = {};
-    try {
-      for (const f of fs.readdirSync(path.join(PUBLIC, 'avatars'))) {
-        const m = /^player([1-8])\.(jpe?g|png|webp)$/i.exec(f);
-        if (m) out[m[1]] = '/avatars/' + encodeURIComponent(f);
-      }
-    } catch { /* Ordner fehlt */ }
-    return sendJson(res, 200, out);
-  }
   if (p.startsWith('/shared/')) return serveFile(res, SHARED, p.slice(8));
   if (p === '/' ) return serveFile(res, PUBLIC, 'index.html');
   if (p === '/editor') return serveFile(res, PUBLIC, 'editor.html');
@@ -137,11 +126,6 @@ function code() {
   do { c = Array.from({ length: 4 }, () => A[Math.floor(Math.random() * A.length)]).join(''); } while (rooms.has(c));
   return c;
 }
-/** Profilbild: nur kleine Base64-Bilder (Client skaliert auf 128×128) */
-function validAvatar(d) {
-  if (typeof d !== 'string' || d.length > 60000) return null;
-  return /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(d) ? d : null;
-}
 function send(ws, msg) { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); }
 function broadcast(room, msg) { const s = JSON.stringify(msg); for (const p of room.players) if (p.ws.readyState === 1) p.ws.send(s); }
 
@@ -151,7 +135,7 @@ function publicRoom(room) {
     playlist: room.playlist, settings: room.settings, ultBy: room.ult ? room.ult.pid : null,
     turn: publicTurn(room),
     players: room.players.map((p) => ({
-      id: p.id, name: p.name, color: p.color, avatar: p.avatar || null, ultUsed: !!p.ultUsed, scores: p.scores, points: p.points, bonus: p.bonus || 0, shots: p.shots, done: p.done, sunk: p.sunk,
+      id: p.id, name: p.name, color: p.color, ultUsed: !!p.ultUsed, scores: p.scores, points: p.points, bonus: p.bonus || 0, shots: p.shots, done: p.done, sunk: p.sunk,
       magnet: !!p.magnet, magnetPuck: p.magnet && p.magnetPuck != null ? p.magnetPuck : null, magnetLeft: p.magnetLeft ?? 0,
       ball: p.ball,
     })),
@@ -173,6 +157,7 @@ function startHole(room) {
   room.map = map;
   room.cm = P.compile(map);
   room.pucks = P.spawnPucks(room.cm, (Math.random() * 2 ** 31) | 0);
+  room.glass = []; // zerbrochene Glaswände (Objekt-Indizes) – gilt für alle bis zum Bahnende
   endUltimate(room, true);
   for (const p of room.players) {
     p.ball = { x: room.cm.start.x, y: room.cm.start.y };
@@ -182,7 +167,7 @@ function startHole(room) {
     while (p.scores.length < room.holeIndex) p.scores.push(null);
     while (p.points.length < room.holeIndex) p.points.push(null);
   }
-  broadcast(room, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map, config: P.config, pucks: room.pucks });
+  broadcast(room, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map, config: P.config, pucks: room.pucks, glass: room.glass });
   // reihum: jede Bahn beginnt ein anderer Spieler
   clearTurn(room);
   beginTurn(room, room.players[room.holeIndex % room.players.length].id);
@@ -344,6 +329,7 @@ function applyResult(room, p, from, r, busyMs, pucks0) {
   const gain = { pucks: b.pucks, puckPts, trick: b.trick, nb: b.nb };
   p.bonus = (p.bonus || 0) + puckPts + b.trick;
   room.pucks = r.pucks;
+  room.glass = r.glass || room.glass;
   if (r.result === 'water') { p.ball = from; p.shots = Math.min(P.MAX_SHOTS, p.shots + P.config.waterPenalty); } else p.ball = { x: r.x, y: r.y };
   if (r.result === 'sunk') finishPlayer(room, p, true);
   else if (p.shots >= P.MAX_SHOTS) finishPlayer(room, p, false);
@@ -372,7 +358,7 @@ function handleShot(room, p, msg) {
     else if (q.ball && !q.sunk) magnets.push(q.ball.x, q.ball.y);
   }
   const cmShot = P.withBalls(room.cm, others, from.x, from.y, magnets, magPucks);
-  const pucks0 = room.pucks;
+  const pucks0 = room.pucks, glass0 = room.glass || [];
   p.shots++;
   turnFlight(room);
   const seq = t.seq;
@@ -381,15 +367,15 @@ function handleShot(room, p, msg) {
     // gesteuerter Schlag (Ultimate/Sling): Ergebnis steht erst fest, wenn die Steuerung vorbei ist
     if (mode === 'ult') p.ultUsed = true;
     const U = P.modeCfg(mode);
-    room.ult = { pid: p.id, mode, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, inputs: [], max: Math.round(U.steerTime / P.DT) * 2, accel: U.steerAccel };
+    room.ult = { pid: p.id, mode, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, glass0, inputs: [], max: Math.round(U.steerTime / P.DT) * 2, accel: U.steerAccel };
     room.ult.timer = setTimeout(() => finishUltimate(room), (U.steerTime / U.slowmo + 15) * 1000);
-    broadcast(room, { type: 'shot', seq, id: p.id, mode, ult: mode === 'ult', from, others, magnets, magPucks, vx: v.vx, vy: v.vy, pucks0, shots: p.shots });
+    broadcast(room, { type: 'shot', seq, id: p.id, mode, ult: mode === 'ult', from, others, magnets, magPucks, vx: v.vx, vy: v.vy, pucks0, glass0, shots: p.shots });
     return;
   }
 
-  const r = P.simulate(cmShot, from.x, from.y, v.vx, v.vy, { pucks: pucks0 });
+  const r = P.simulate(cmShot, from.x, from.y, v.vx, v.vy, { pucks: pucks0, glass: glass0 });
   const gain = applyResult(room, p, from, r, r.time * 1000, pucks0);
-  broadcast(room, { type: 'shot', seq, id: p.id, from, others, magnets, magPucks, vx: v.vx, vy: v.vy, pucks0, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
+  broadcast(room, { type: 'shot', seq, id: p.id, from, others, magnets, magPucks, vx: v.vx, vy: v.vy, pucks0, glass0, glass: r.glass, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
   turnResolved(room, r.time * 1000);
 }
 
@@ -415,13 +401,13 @@ function finishUltimate(room) {
   clearTimeout(u.timer);
   room.ult = null;
   const p = room.players.find((q) => q.id === u.pid);
-  const r = P.simulate(u.cm, u.from.x, u.from.y, u.vx, u.vy, { pucks: u.pucks0, kick: u.mode === 'ult', inputs: u.inputs });
+  const r = P.simulate(u.cm, u.from.x, u.from.y, u.vx, u.vy, { pucks: u.pucks0, glass: u.glass0, kick: u.mode === 'ult', inputs: u.inputs });
   const seq = room.turn ? room.turn.seq : 0;
-  if (!p) { room.pucks = r.pucks; broadcast(room, { type: 'shotEnd', seq, id: u.pid, pucks: r.pucks, gone: true }); turnResolved(room, 0); return; }
+  if (!p) { room.pucks = r.pucks; room.glass = r.glass; broadcast(room, { type: 'shotEnd', seq, id: u.pid, pucks: r.pucks, glass: r.glass, gone: true }); turnResolved(room, 0); return; }
   const steerT = (u.inputs.length / 2) * P.DT;
   const rest = Math.max(0, r.time - steerT) * 1000;
   const gain = applyResult(room, p, u.from, r, rest, u.pucks0);
-  broadcast(room, { type: 'shotEnd', seq, id: p.id, n: u.inputs.length / 2, pucks: r.pucks, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
+  broadcast(room, { type: 'shotEnd', seq, id: p.id, n: u.inputs.length / 2, pucks: r.pucks, glass: r.glass, result: r.result, end: p.ball, shots: p.shots, done: p.done, sunk: p.sunk, score: p.scores[room.holeIndex], gain, bonus: p.bonus, points: p.points[room.holeIndex] ?? null });
   // Zuschauer hängen beim Steuern etwas hinterher (Puffer + Zeitlupe) -> großzügiger Timeout
   turnResolved(room, rest, (P.modeCfg(u.mode).steerTime / P.modeCfg(u.mode).slowmo) * 1000 * 0.5);
 }
@@ -465,14 +451,14 @@ function joinRoom(p, room) {
     while (p.points.length < room.holeIndex) p.points.push(null);
     p.ball = { x: room.cm.start.x, y: room.cm.start.y };
     if (room.phase === 'holeEnd') { p.done = true; p.scores[room.holeIndex] = null; p.points[room.holeIndex] = null; }
-    send(p.ws, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map: room.map, config: P.config, pucks: room.pucks });
+    send(p.ws, { type: 'hole', index: room.holeIndex, total: room.playlist.length, map: room.map, config: P.config, pucks: room.pucks, glass: room.glass });
   }
   broadcast(room, { type: 'toast', text: `${p.name} ist beigetreten` });
   if (room.phase === 'playing' && !room.turn && !room.endPending) beginTurn(room, p.id);
   else syncRoom(room);
 }
 
-const wss = new WebSocketServer({ server, maxPayload: 96 * 1024 });
+const wss = new WebSocketServer({ server, maxPayload: 32 * 1024 });
 wss.on('connection', (ws) => {
   const p = { id: nextId++, ws, name: 'Spieler', room: null, scores: [], points: [] };
   send(ws, { type: 'welcome', id: p.id, config: P.config, build: BUILD });
@@ -485,11 +471,6 @@ wss.on('connection', (ws) => {
     switch (msg.type) {
       case 'hello':
         p.name = String(msg.name || 'Spieler').trim().slice(0, 16) || 'Spieler';
-        if ('avatar' in msg) p.avatar = validAvatar(msg.avatar);
-        if (room) syncRoom(room);
-        break;
-      case 'avatar':
-        p.avatar = validAvatar(msg.data);
         if (room) syncRoom(room);
         break;
       case 'create': {
@@ -564,4 +545,4 @@ wss.on('connection', (ws) => {
   ws.on('close', () => leave(p));
 });
 
-server.listen(PORT, () => console.log(`Skillshot läuft auf http://localhost:${PORT}  (Editor: /editor)`));
+server.listen(PORT, () => console.log(`Skillgolf läuft auf http://localhost:${PORT}  (Editor: /editor)`));

@@ -1,5 +1,5 @@
 {
- "author": "Skillshot",
+ "author": "Skillgolf",
  "width": 1200,
  "height": 800,
  "name": "Sandsturm",
@@ -81,6 +81,14 @@
    "x": 1100,
    "y": 520,
    "r": 20
+  },
+  {
+   "type": "glass",
+   "x1": 980,
+   "y1": 580,
+   "x2": 1200,
+   "y2": 580,
+   "t": 8
   }
  ]
 }
