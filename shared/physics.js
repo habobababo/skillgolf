@@ -635,6 +635,7 @@
         const mx = q.x - s.x, my = q.y - s.y, md2 = mx * mx + my * my;
         if (md2 >= F.radius * F.radius || md2 < 1e-12) continue;
         const md = Math.sqrt(md2), u = 1 - md / F.radius, f = F.strength * u * u * (q.f === 'repel' ? -1 : 1);
+        if (q.f === 'attract' && md <= s.br + q.r + 3) continue; // am Puck angekommen: nicht weiter dagegen drücken
         ex += mx / md * f; ey += my / md * f;
       }
       if (cm.magBalls && !s.ghost) { // magnetisierte Gegnerbälle ziehen an, auch wenn sie angestoßen wurden
@@ -663,7 +664,24 @@
       const q = s.pucks[i];
       if (!q.alive) continue;
       const g = holeGravity(cm, q.x, q.y, puckPull(q));
-      if (!applyForces(cm, q, PK.friction, g ? g[0] : 0, g ? g[1] : 0)) {
+      let fx = g ? g[0] : 0, fy = g ? g[1] : 0;
+      if (q.pb != null) {
+        // liegende Bälle der anderen Spieler spüren Gravitations-/Abstoß-Pucks genauso wie der Schütze
+        for (let j = 0; j < s.pucks.length; j++) {
+          const o = s.pucks[j];
+          if (!o.f || !o.alive || o === q) continue;
+          const F = o.f === 'repel' ? K.pucks.repel : K.pucks.attract;
+          const mx = o.x - q.x, my = o.y - q.y, md2 = mx * mx + my * my;
+          if (md2 >= F.radius * F.radius || md2 < 1e-12) continue;
+          const md = Math.sqrt(md2), u = 1 - md / F.radius;
+          // wie beim Magneten: kurz vor der Berührung nicht mehr ziehen, im Feld dämpfen -> kommt zur Ruhe
+          fx -= q.vx * K.magnet.damp * u; fy -= q.vy * K.magnet.damp * u;
+          if (o.f === 'attract' && md <= q.r + o.r + 3) continue;
+          const f = F.strength * u * u * (o.f === 'repel' ? -1 : 1);
+          fx += mx / md * f; fy += my / md * f;
+        }
+      }
+      if (!applyForces(cm, q, q.pb != null ? 1 : PK.friction, fx, fy)) { // Spielerbälle rollen wie Bälle, nicht wie Pucks
         q.alive = false; q.vx = q.vy = 0;
         if (q.pb != null) { q.ox = cm.start.x; q.oy = cm.start.y; q.drowned = true; } // ins Wasser geschleuderter Spielerball -> zurück zum Abschlag
         s.pevents.push({ type: 'sink', x: q.x, y: q.y, c: q.c, pb: q.pb });
@@ -757,7 +775,8 @@
     for (let i = 0; i < s.pucks.length; i++) {
       const q = s.pucks[i];
       if (!q.alive) continue;
-      if (q.vx * q.vx + q.vy * q.vy < STOP_SPEED * STOP_SPEED) { q.vx = 0; q.vy = 0; }
+      // langsame Pucks anhalten; Spielerbälle nur, wenn keine stärkere Kraft (Feld, Loch) sie zieht
+      if (q.vx * q.vx + q.vy * q.vy < STOP_SPEED * STOP_SPEED && (q.pb == null || !(q._a2 > q._dec * q._dec))) { q.vx = 0; q.vy = 0; }
       if (q.vx !== 0 || q.vy !== 0) moving = true;
     }
     if (s.t > K.maxShotTime) {
