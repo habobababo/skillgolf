@@ -162,7 +162,7 @@ function startHole(room) {
   room.pucks = P.spawnPucks(room.cm, (Math.random() * 2 ** 31) | 0, room.holeIndex);
   room.glass = []; // zerbrochene Glaswände (Objekt-Indizes) – gilt für alle bis zum Bahnende
   room.gadgets = null; // werden beim ersten Zug verteilt
-  stopFuses(room); room.fuse = {}; room.blastUntil = 0;
+  stopFuses(room); room.fuse = {};
   endUltimate(room, true);
   for (const p of room.players) {
     p.ball = { x: room.cm.start.x, y: room.cm.start.y };
@@ -224,18 +224,19 @@ function fuseExpired(room) {
   room.pucks = r.pucks; room.glass = r.glass;
   applyBalls(room, r.balls);
   noteArmed(room);
-  // Zug pausieren, bis die Explosion ausgerollt ist; dann bekommt der Spieler am Zug neu Zeit
-  clearTimeout(t.timer);
-  t.phase = 'blast'; t.deadline = 0;
+  // Der Zug läuft weiter: Zeitlimit bleibt, der Spieler darf sofort (mit dem neuen Stand) schlagen.
+  // Nur wenn der Spieler am Zug dabei eingelocht wurde, ist sein Zug nach der Explosion vorbei.
   const ms = r.time * 1000 + 700;
-  room.blastUntil = Date.now() + ms;
   broadcast(room, { type: 'blast', idx: i, balls0: balls, pucks0, glass0, pucks: r.pucks, balls: r.balls, glass: r.glass });
   syncRoom(room);
-  setTimeout(() => {
-    if (room.turn !== t || room.phase !== 'playing') return;
-    const q = room.players.find((x) => x.id === t.id);
-    if (q && !q.done) beginTurn(room, t.id, true); else endTurn(room); // Spieler weg/fertig -> Nächster
-  }, ms);
+  const q = room.players.find((x) => x.id === t.id);
+  if (!q || q.done) {
+    clearTimeout(t.timer);
+    t.phase = 'blast'; t.deadline = 0;
+    setTimeout(() => { if (room.turn === t && room.phase === 'playing') endTurn(room); }, ms);
+    return;
+  }
+  startFuses(room); // weitere Bomben ticken weiter (Kettenreaktion)
 }
 
 // ---------------------------------------------------------------- Gravitations-Puck (zählt nicht als Schlag)

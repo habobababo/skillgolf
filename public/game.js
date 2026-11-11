@@ -111,6 +111,7 @@
     const p = room && room.players.find((x) => x.id === m.id);
     if (!p || !cm) { if (m.seq) send({ type: 'animDone', seq: m.seq }); return; }
     if (m.id === myId) awaiting = false;
+    if (blastAnim) finishBlast(); // Schlag während einer Explosion: die Explosion springt ans Ende
     const mode = m.mode || (m.ult ? 'ult' : null);
     const ult = !!mode;
     const a = new S.BallAnim(P.withBalls(cm, m.others || [], m.from.x, m.from.y, m.magnets, m.magPucks, m.magBalls), m.from, m.vx, m.vy, m.end, m.result,
@@ -237,15 +238,18 @@
   function onBlast(m) {
     if (!cm) return;
     fuseInfo = { ticking: false, list: fuseInfo.list.filter(([i]) => i !== m.idx), at: performance.now() };
+    if (blastAnim) finishBlast(); // vorherige Explosion/Puck sofort fertig
     blastAnim = new S.BlastAnim(cm, P.blastState(cm, m.pucks0, m.balls0, m.glass0, m.idx));
-    blastAnim.final = m;
-    if (turn) { turn.phase = 'blast'; turnDeadline = 0; }
-    renderHud();
+    blastAnim.final = m; blastAnim.bomb = true;
+    // Zug wird NICHT unterbrochen: Endstand sofort übernehmen (Vorschau stimmt), die Explosion läuft nur als Bild
+    setGlass(m.glass); setPucks(m.pucks); setBalls(m.balls);
+    renderBoard(); renderHud();
   }
   /** Gravitations-Puck wurde abgeschossen (zählt nicht als Schlag) */
   function onGPuck(m) {
     if (!cm) return;
     if (m.id === myId) { awaiting = false; gMode = false; }
+    if (blastAnim) finishBlast();
     blastAnim = new S.BlastAnim(cm, P.launchState(cm, m.pucks0, m.balls0, m.glass0, m.id, m.angle, m.power, m.noArm));
     blastAnim.final = m; blastAnim.gpuck = true;
     const p = room && room.players.find((x) => x.id === m.id);
@@ -255,7 +259,7 @@
   }
   // --- Gravity-Puck-Modus (Taste F): nächster Abschuss ist ein Puck statt des Balls
   let gMode = false, gPrev = null;
-  function canGPuck() { const p = me(); return !!(p && myTurn() && !blastAnim && !p.done && (p.gpuckLeft || 0) > 0 && P.config.gravityPuck.perHole > 0); }
+  function canGPuck() { const p = me(); return !!(p && myTurn() && !(blastAnim && !blastAnim.bomb) && !p.done && (p.gpuckLeft || 0) > 0 && P.config.gravityPuck.perHole > 0); }
   function toggleGMode() {
     if (!canGPuck()) { gMode = false; updateGPHint(); return; }
     gMode = !gMode; sfx.click && sfx.click(); updateGPHint();
@@ -299,8 +303,9 @@
   function glow(c, col, b) { c.shadowColor = col; c.shadowBlur = b; }
 
   function finishBlast() {
-    const m = blastAnim.final;
+    const m = blastAnim.final, bomb = blastAnim.bomb;
     blastAnim = null;
+    if (bomb) return; // Bombe: Endstand wurde schon beim Knall übernommen
     setGlass(m.glass); setPucks(m.pucks);
     setBalls(m.balls); // inkl. ins Wasser (-> Abschlag) oder ins Loch (-> eingelocht) geschleudert
     renderBoard(); renderHud();
@@ -649,7 +654,7 @@
     canShoot: () => {
       const p = me();
       if (!room || room.phase !== 'playing' || !p || p.done || awaiting || !cm || ultBy) return false;
-      if (!myTurn() || blastAnim) return false;
+      if (!myTurn() || (blastAnim && !blastAnim.bomb)) return false; // während einer Explosion darf man weiter schlagen
       for (const [, a] of anims) if (!a.done) return false;
       return true;
     },
