@@ -411,10 +411,22 @@
     },
   });
   function testMode() { return testing && !testing.done ? P.shotMode(testing.shots + 1, testing.ultUsed) : null; }
+  let pullHeld = false; // Ultimate: linke Maustaste = Zugstrahl zum Zeiger
+  window.addEventListener('pointerdown', (e) => { if (e.button === 0) pullHeld = true; });
+  window.addEventListener('pointerup', (e) => { if (e.button === 0) pullHeld = false; });
   function steer(st, a) {
     const m = ctrl.mouse;
     if (!m) return [0, 0];
     const dx = m.x - st.x, dy = m.y - st.y, d = Math.hypot(dx, dy);
+    if (a && a.mode === 'ult' && pullHeld) {
+      const U = P.config.ultimate, A = U.pullAccel;
+      let ax = (d > 1 ? dx / d : 0) * A * Math.min(1, d / 60) - st.vx * U.pullDamp;
+      let ay = (d > 1 ? dy / d : 0) * A * Math.min(1, d / 60) - st.vy * U.pullDamp;
+      const n = Math.hypot(ax, ay); if (n > A) { ax *= A / n; ay *= A / n; }
+      a.pulling = true;
+      return [Math.round(ax), Math.round(ay)];
+    }
+    if (a) a.pulling = false;
     if (d < 2) return [0, 0];
     const k = (a && a.mc ? a.mc.steerAccel : P.config.ultimate.steerAccel) * Math.min(1, d / 150) / d;
     return [Math.round(dx * k), Math.round(dy * k)];

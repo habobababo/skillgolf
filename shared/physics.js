@@ -89,6 +89,8 @@
       slowmo: 0.3,         // Zeitlupen-Faktor während der Steuerung
       steerTime: 6,        // Spielsekunden, die der Ball gesteuert werden kann
       steerAccel: 2600,    // Steuer-Beschleunigung (px/s²)
+      pullAccel: 7000,     // linke Maustaste gedrückt: Ball wird kräftig zum Zeiger gezogen (px/s²)
+      pullDamp: 3.5,       // Dämpfung dabei, damit er am Zeiger nicht vorbeischießt
       eat: true,           // frisst alles auf seinem Weg (Pucks, Gegnerbälle, Wände, Blöcke, Bumper …) und wächst
       grow: 2.5,           // Radius-Zuwachs pro Bissen (px)
       maxScale: 3,         // höchstens so viel größer als normal
@@ -183,6 +185,7 @@
     c.ultimate.afterShots = Math.round(lim(c.ultimate.afterShots, 0, 50));
     c.ultimate.slowmo = lim(c.ultimate.slowmo, 0.05, 1);
     c.ultimate.launchFactor = lim(c.ultimate.launchFactor, 0.05, 3);
+    c.ultimate.pullAccel = lim(c.ultimate.pullAccel, 0, 50000); c.ultimate.pullDamp = lim(c.ultimate.pullDamp, 0, 50);
     c.ultimate.eat = c.ultimate.eat !== false; c.ultimate.grow = lim(c.ultimate.grow, 0, 50); c.ultimate.maxScale = lim(c.ultimate.maxScale, 1, 10);
     c.sling.launchFactor = lim(c.sling.launchFactor, 0.05, 3);
     c.sling.slowmo = lim(c.sling.slowmo, 0.05, 1);

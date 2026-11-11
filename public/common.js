@@ -1298,11 +1298,27 @@
     ctx.globalAlpha = 0.75 + 0.25 * Math.sin(t * 8);
     ctx.fillText(sl ? 'SLING BALL · LENKEN' : 'ULTIMATE · SLOW-MO', w / 2, 46 * d);
     noGlow(ctx); ctx.globalAlpha = 1;
+    if (!sl && target) { // Hinweis im HUD: Maus 1 = Zugstrahl
+      ctx.font = `800 ${13 * d}px system-ui, sans-serif`;
+      ctx.fillStyle = a.pulling ? '#ffe03a' : 'rgba(255,255,255,0.85)'; glow(ctx, a.pulling ? '#ffe03a' : C1, 10);
+      ctx.fillText(a.pulling ? '🧲 ZUGSTRAHL AKTIV – Ball fliegt zum Zeiger' : '🖱 Maus 1 halten: Ball zum Zeiger ziehen', w / 2, 86 * d);
+      noGlow(ctx);
+    }
     const bw = 280 * d, bx = w / 2 - bw / 2, by = 58 * d;
     ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(bx, by, bw, 6 * d);
     ctx.fillStyle = C1; glow(ctx, C1, 12); ctx.fillRect(bx, by, bw * a.steerLeft, 6 * d); noGlow(ctx);
     ctx.restore();
     view.world();
+    if (target && a.pulling) { // Zugstrahl
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 3; i++) {
+        ctx.strokeStyle = i === 1 ? '#ffffff' : '#ffe03a'; ctx.globalAlpha = i === 1 ? 0.9 : 0.45; ctx.lineWidth = i === 1 ? 2 : 10 - i * 3; glow(ctx, '#ffe03a', 20);
+        ctx.beginPath(); ctx.moveTo(bp.x, bp.y);
+        const mx = (bp.x + target.x) / 2 + Math.sin(t * 30 + i) * 6, my = (bp.y + target.y) / 2 + Math.cos(t * 27 + i) * 6;
+        ctx.quadraticCurveTo(mx, my, target.x, target.y); ctx.stroke();
+      }
+      noGlow(ctx); ctx.restore();
+    }
     if (target) {
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
       ctx.strokeStyle = C1; ctx.lineWidth = 2.5; glow(ctx, C1, 14); ctx.setLineDash([8, 6]); ctx.lineDashOffset = -t * 80;

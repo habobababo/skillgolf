@@ -467,7 +467,7 @@ function handleShot(room, p, msg) {
     // gesteuerter Schlag (Ultimate/Sling): Ergebnis steht erst fest, wenn die Steuerung vorbei ist
     if (mode === 'ult') p.ultUsed = true;
     const U = P.modeCfg(mode);
-    room.ult = { pid: p.id, mode, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, glass0, balls0, noArm, inputs: [], max: Math.round(U.steerTime / P.DT) * 2, accel: U.steerAccel };
+    room.ult = { pid: p.id, mode, from, vx: v.vx, vy: v.vy, cm: cmShot, pucks0, glass0, balls0, noArm, inputs: [], max: Math.round(U.steerTime / P.DT) * 2, accel: mode === 'ult' ? Math.max(U.steerAccel, P.config.ultimate.pullAccel) : U.steerAccel };
     room.ult.timer = setTimeout(() => finishUltimate(room), (U.steerTime / U.slowmo + 15) * 1000);
     broadcast(room, { type: 'shot', seq, id: p.id, mode, ult: mode === 'ult', from, others: [], magnets, magPucks, magBalls, balls0, noArm, vx: v.vx, vy: v.vy, pucks0, glass0, shots: p.shots });
     return;
