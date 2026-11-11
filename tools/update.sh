@@ -23,15 +23,24 @@ if [ -z "$TOKEN" ] && [ -f update.json ]; then
   TOKEN="$(node -e 'try{process.stdout.write(String(require("./update.json").githubToken||""))}catch(e){}')"
 fi
 
+# Remote bestimmen: 'origin', sonst der erste vorhandene, sonst die Skillgolf-Adresse eintragen
+# (eigene Adresse möglich über "repoUrl" in update.json)
+DEFAULT_URL="$(node -e 'try{process.stdout.write(String(require("./update.json").repoUrl||""))}catch(e){}' 2>/dev/null)"
+[ -n "$DEFAULT_URL" ] || DEFAULT_URL="https://github.com/habobababo/skillgolf.git"
+REMOTE=origin
+if ! git remote get-url origin >/dev/null 2>&1; then
+  FIRST="$(git remote | head -1)"
+  if [ -n "$FIRST" ]; then REMOTE="$FIRST"; echo "Kein 'origin' – nutze Remote '$REMOTE'."
+  else git remote add origin "$DEFAULT_URL" || fail "Konnte Remote nicht eintragen."; echo "Remote 'origin' eingetragen: $DEFAULT_URL"; fi
+fi
+URL="$(git remote get-url "$REMOTE")"
 # Alte Repo-Adresse (vor der Umbenennung) automatisch korrigieren
-URL="$(git remote get-url origin 2>/dev/null || true)"
-[ -n "$URL" ] || fail "Kein Remote 'origin' eingetragen."
 case "$URL" in
-  *habobababo/skillshot*) NEWURL="${URL/habobababo\/skillshot/habobababo/skillgolf}"; git remote set-url origin "$NEWURL"; URL="$NEWURL"; echo "Repo-Adresse angepasst: $URL" ;;
+  *habobababo/skillshot*) NEWURL="${URL/habobababo\/skillshot/habobababo/skillgolf}"; git remote set-url "$REMOTE" "$NEWURL"; URL="$NEWURL"; echo "Repo-Adresse angepasst: $URL" ;;
 esac
 # Token nie in der URL speichern – falls doch einer drinsteht, entfernen
 case "$URL" in
-  https://*@github.com/*) CLEAN="https://github.com/${URL#*@github.com/}"; git remote set-url origin "$CLEAN"; URL="$CLEAN"; echo "Zugangsdaten aus der Repo-Adresse entfernt." ;;
+  https://*@github.com/*) CLEAN="https://github.com/${URL#*@github.com/}"; git remote set-url "$REMOTE" "$CLEAN"; URL="$CLEAN"; echo "Zugangsdaten aus der Repo-Adresse entfernt." ;;
 esac
 
 GIT=(git)
@@ -46,21 +55,24 @@ fi
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 [ "$BRANCH" != "HEAD" ] || fail "Kein Branch ausgecheckt (detached HEAD)."
-
-if ! OUT="$("${GIT[@]}" fetch --quiet origin "$BRANCH" 2>&1)"; then
+# Branch auf GitHub: gleicher Name wie lokal, sonst main
+RBRANCH="$BRANCH"
+if ! OUT="$("${GIT[@]}" fetch --quiet "$REMOTE" 2>&1)"; then
   echo "$OUT" | sed 's/^/  /'
   if echo "$OUT" | grep -qiE 'authentication|could not read username|not found|403|401'; then
     fail "GitHub verweigert den Zugriff. Ist der Token in update.json gültig und hat er Lesezugriff auf das Repo (Contents: Read)?"
   fi
   fail "git fetch fehlgeschlagen."
 fi
+git rev-parse --verify --quiet "$REMOTE/$RBRANCH" >/dev/null || RBRANCH=main
+git rev-parse --verify --quiet "$REMOTE/$RBRANCH" >/dev/null || fail "Branch '$BRANCH' bzw. 'main' gibt es auf $URL nicht."
 
 LOCAL="$(git rev-parse --short HEAD)"
-BEHIND="$(git rev-list --count "HEAD..origin/$BRANCH")"
+BEHIND="$(git rev-list --count "HEAD..$REMOTE/$RBRANCH")"
 if [ "$BEHIND" = "0" ]; then echo "AKTUELL $LOCAL"; exit 0; fi
 
 echo "NEU $BEHIND"
-git log --format='  %h %ad  %s' --date=format:'%d.%m. %H:%M' "HEAD..origin/$BRANCH" | head -30
+git log --format='  %h %ad  %s' --date=format:'%d.%m. %H:%M' "HEAD..$REMOTE/$RBRANCH" | head -30
 [ "${1:-}" = "--check" ] && exit 0
 
 if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -69,7 +81,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 OLDLOCK="$(git rev-parse HEAD:package-lock.json 2>/dev/null || echo none)"
-git merge --ff-only --quiet "origin/$BRANCH" || fail "Update ließ sich nicht einspielen (lokale Commits?). Mit 'git status' nachsehen."
+git merge --ff-only --quiet "$REMOTE/$RBRANCH" || fail "Update ließ sich nicht einspielen (lokale Commits?). Mit 'git status' nachsehen."
 NEWLOCK="$(git rev-parse HEAD:package-lock.json 2>/dev/null || echo none)"
 
 if [ "$OLDLOCK" != "$NEWLOCK" ] || [ ! -d node_modules ]; then

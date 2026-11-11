@@ -3,5 +3,6 @@
   "adminPassword": "hier-ein-langes-passwort",
   "autoUpdate": false,
   "checkMinutes": 30,
-  "restart": "auto"
+  "restart": "auto",
+  "repoUrl": "https://github.com/habobababo/skillgolf.git"
 }

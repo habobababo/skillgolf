@@ -51,6 +51,8 @@ Skillgolf bringt einen Updater mit: `tools/update.sh` holt den neuesten Stand vo
 
 **Auto-Update:** Mit `"autoUpdate": true` prüft der Server alle `checkMinutes` Minuten (Standard 30) und installiert Updates von selbst, aber nur, wenn gerade niemand spielt.
 
+Fehlt im Server-Ordner der Git-Remote `origin`, trägt der Updater `https://github.com/habobababo/skillgolf.git` selbst ein. Eine andere Adresse gibst du mit `"repoUrl"` in `update.json` vor. Heißt der Remote anders, nimmt er den vorhandenen. Heißt der lokale Branch anders als auf GitHub, nimmt er `main`.
+
 Der Token wird nur für den einzelnen `git fetch` mitgegeben und nirgends gespeichert, weder in `.git/config` noch in der Repo-Adresse. `config.json`, `update.json` und eigene Bahnen in `maps/custom/` bleiben bei Updates unverändert.
 
 ## Spielwerte einstellen
