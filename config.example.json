@@ -11,8 +11,8 @@
   "captureSpeed": 560,
   "holePull": 2600,
   "blackHole": {
-    "radius": 240,
-    "strength": 1500,
+    "radius": 180,
+    "strength": 700,
     "puckFactor": 1
   },
   "maxShotTime": 40,

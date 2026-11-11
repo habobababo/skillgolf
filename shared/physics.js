@@ -27,8 +27,8 @@
     captureSpeed: 560,     // langsamer als das -> Ball fällt ins Loch
     holePull: 2600,        // Sog direkt am Lochrand (px/s²)
     blackHole: {           // Das Loch ist ein schwarzes Loch und zieht Ball und Pucks an
-      radius: 240,         // Reichweite der Anziehung (px), 0 = aus
-      strength: 1500,      // Anziehung im Zentrum (px/s²), nimmt nach außen quadratisch ab
+      radius: 180,         // Reichweite der Anziehung (px), 0 = aus
+      strength: 700,       // Anziehung im Zentrum (px/s²), nimmt nach außen quadratisch ab
       puckFactor: 1,       // Multiplikator für Pucks (schwere Pucks spüren zusätzlich weniger)
     },
     maxShotTime: 40,       // Sekunden, nach denen ein Schlag hart beendet wird

@@ -43,7 +43,7 @@ nano config.json
 | `ballRadius` / `holeRadius` | 8 / 14 | Größe von Ball und Loch |
 | `captureSpeed` | 560 | Ist der Ball langsamer, fällt er ins Loch |
 | `holePull` | 2600 | Sog am Lochrand |
-| `blackHole.radius` / `blackHole.strength` | 240 / 1500 | Reichweite und Anziehung (px/s² im Zentrum) des schwarzen Lochs, `0` = aus |
+| `blackHole.radius` / `blackHole.strength` | 180 / 700 | Reichweite und Anziehung (px/s² im Zentrum) des schwarzen Lochs, `0` = aus |
 | `blackHole.puckFactor` | 1 | Wie stark Pucks angezogen werden (schwere zusätzlich weniger) |
 | `points.holeInOne/eagle/birdie/par/bogey/worse/miss` | 10/7/5/3/2/1/0 | Punkte pro Bahn |
 | `points.puck` / `points.heavyPuck` / `points.maxPuckBonus` | 1 / 2 / 5 | Bonus pro versenktem Puck, für schwere Pucks, Höchstwert pro Bahn |
