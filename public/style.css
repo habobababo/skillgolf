@@ -159,7 +159,8 @@ table.score .ptot { color: #ffe03a; text-shadow: 0 0 8px rgba(255,224,58,.6); fo
 /* großer Zug-Countdown: je weniger Zeit, desto größer */
 #bigTimer { position: fixed; left: 50%; top: 92px; transform: translateX(-50%); pointer-events: none; z-index: 5;
   font: 900 40px/1 system-ui, sans-serif; color: #fff; letter-spacing: -2px; font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 12px var(--tc, #00eaff), 0 0 36px var(--tc, #00eaff); opacity: .85; transition: color .3s; }
+  /* kein großer Weichzeichner-Schatten: der wird über dem Spielfeld jedes Bild neu berechnet (FPS!) */
+  -webkit-text-stroke: 2px var(--tc, #00eaff); text-shadow: 0 0 2px var(--tc, #00eaff); opacity: .85; will-change: transform, opacity; contain: layout paint; }
 #bigTimer.pop { animation: tpop .35s ease-out; }
 @keyframes tpop { 0% { transform: translateX(-50%) scale(1.35); } 100% { transform: translateX(-50%) scale(1); } }
 #bigTimer small { display: block; font-size: 12px; letter-spacing: 3px; text-align: center; opacity: .8; font-weight: 700; margin-top: 2px; }

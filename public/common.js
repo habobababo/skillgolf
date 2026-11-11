@@ -37,7 +37,7 @@
   class View {
     constructor(canvas) { this.canvas = canvas; this.ctx = canvas.getContext('2d'); this.scale = 1; this.ox = 0; this.oy = 0; this.pad = 22; this.sx = 0; this.sy = 0; this.dpr = 1; }
     fit(W, H) {
-      const c = this.canvas, dpr = window.devicePixelRatio || 1;
+      const c = this.canvas, dpr = Math.min(window.devicePixelRatio || 1, PERF.maxDpr);
       const r = c.getBoundingClientRect();
       if (c.width !== Math.round(r.width * dpr) || c.height !== Math.round(r.height * dpr)) {
         c.width = Math.max(1, Math.round(r.width * dpr)); c.height = Math.max(1, Math.round(r.height * dpr));
@@ -55,10 +55,31 @@
       this.sy = sh ? (Math.random() - 0.5) * 2 * sh * this.dpr : 0;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
-      const g = ctx.createRadialGradient(c.width / 2, c.height / 2, 0, c.width / 2, c.height / 2, Math.max(c.width, c.height) * 0.7);
-      g.addColorStop(0, NEON.bg1); g.addColorStop(1, NEON.bg2);
-      ctx.fillStyle = g; ctx.fillRect(0, 0, c.width, c.height);
+      // Hintergrund-Verlauf nur einmal pro Größe berechnen (vorher jedes Bild für die ganze Fläche)
+      if (!this.bg || this.bg.width !== c.width || this.bg.height !== c.height) {
+        this.bg = document.createElement('canvas'); this.bg.width = c.width; this.bg.height = c.height;
+        const b = this.bg.getContext('2d');
+        const g = b.createRadialGradient(c.width / 2, c.height / 2, 0, c.width / 2, c.height / 2, Math.max(c.width, c.height) * 0.7);
+        g.addColorStop(0, NEON.bg1); g.addColorStop(1, NEON.bg2);
+        b.fillStyle = g; b.fillRect(0, 0, c.width, c.height);
+      }
+      ctx.drawImage(this.bg, 0, 0);
       this.world();
+    }
+    /**
+     * Bloom: das fertige Bild verkleinert + weichgezeichnet aufhellend darüberlegen.
+     * Ersetzt die vielen einzelnen Leuchtschatten (shadowBlur), die beim Zeichnen sehr teuer sind.
+     */
+    bloom() {
+      if (!PERF.bloom || PERF.lowFx) return;
+      const c = this.canvas, ctx = this.ctx, w = Math.max(1, c.width >> 2), h = Math.max(1, c.height >> 2);
+      if (!this.bl || this.bl.width !== w || this.bl.height !== h) { this.bl = document.createElement('canvas'); this.bl.width = w; this.bl.height = h; this.blx = this.bl.getContext('2d'); }
+      const b = this.blx;
+      b.globalCompositeOperation = 'copy'; b.filter = 'blur(2px)'; b.drawImage(c, 0, 0, w, h); b.filter = 'none';
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = PERF.bloom;
+      ctx.drawImage(this.bl, 0, 0, c.width, c.height);
+      ctx.restore();
     }
     world() { this.ctx.setTransform(this.scale, 0, 0, this.scale, this.ox + this.sx, this.oy + this.sy); }
     screen() { this.ctx.setTransform(1, 0, 0, 1, 0, 0); }
@@ -70,7 +91,55 @@
   }
 
   // ------------------------------------------------------------ Neon-Helfer
-  function glow(ctx, color, blur, k) { ctx.shadowColor = color; ctx.shadowBlur = blur * (k || 1); }
+  // ------------------------------------------------------------ Leistung
+  // lowFx: Spar-Modus (keine Weichzeichner-Leuchteffekte, weniger Partikel, max. 1-fache Auflösung).
+  // Wird automatisch aktiviert, wenn die Bildrate dauerhaft einbricht (siehe PerfMonitor).
+  // bloom: Stärke des Bloom-Nachleuchtens (0 = aus); glowShadows: echte Leuchtschatten pro Objekt (teuer)
+  // Standard: Bloom statt Einzel-Leuchtschatten (gleicher Look, ein Bruchteil des Aufwands).
+  // baking: beim einmaligen Vorzeichnen (Bahn-Cache, Sprites) sind echte Leuchtschatten erlaubt.
+  const PERF = { lowFx: false, maxDpr: 2, maxParts: 2500, glowScale: 1, bloom: 0.55, glowShadows: false, baking: false };
+  function setLowFx(on) { PERF.lowFx = !!on; PERF.maxDpr = on ? 1 : 2; PERF.maxParts = on ? 700 : 2500; }
+  /** misst die Bildzeit und schaltet bei Bedarf in den Spar-Modus (einmalig, bleibt für die Sitzung) */
+  class PerfMonitor {
+    constructor(onLow) { this.acc = 0; this.n = 0; this.bad = 0; this.onLow = onLow; this.skip = 2; }
+    frame(dt) {
+      if (PERF.lowFx || PERF.userFull || document.hidden || dt > 0.5) return;
+      try { if (localStorage.getItem('skillgolf.lowfx') === '0') return; } catch { /* egal */ } // bewusst volle Effekte gewählt // Tab im Hintergrund / Ruckler beim Laden ignorieren
+      if (this.skip > 0) { this.skip -= dt; return; }
+      this.acc += dt; this.n++;
+      if (this.acc < 2) return;
+      const avg = this.acc / this.n; this.acc = 0; this.n = 0;
+      this.bad = avg > 1 / 30 ? this.bad + 1 : 0;        // unter ~30 FPS
+      if (this.bad >= 3) {                                // ... und das 6 Sekunden lang
+        try { if (localStorage.getItem('skillgolf.lowfx') === '0') { PERF.userFull = true; return; } } catch { /* egal */ } // bewusst volle Effekte gewählt
+        setLowFx(true); if (this.onLow) this.onLow();
+      }
+    }
+  }
+  try { if (localStorage.getItem('skillgolf.lowfx') === '1') setLowFx(true); } catch { /* egal */ }
+
+  // vorgerenderte Bilder (Sprites) für teure, gleichbleibende Grafik
+  const sprites = new Map();
+  function pxScale(ctx) { const m = ctx.getTransform(); return Math.max(0.25, Math.round(Math.min(3, Math.hypot(m.a, m.b)) * 4) / 4); }
+  /** quadratisches Sprite mit Mittelpunkt (0,0) und Kantenlänge size (Weltmaß) */
+  function sprite(key, size, k, draw) {
+    const px = Math.max(2, Math.ceil(size * k)), id = key + '@' + px;
+    let c = sprites.get(id);
+    if (!c) {
+      c = document.createElement('canvas'); c.width = c.height = px;
+      const x = c.getContext('2d'); x.scale(px / size, px / size); x.translate(size / 2, size / 2);
+      PERF.baking = true; try { draw(x, px / size); } finally { PERF.baking = false; }
+      sprites.set(id, c);
+      if (sprites.size > 200) sprites.delete(sprites.keys().next().value);
+    }
+    return c;
+  }
+  function blit(ctx, c, x, y, size, rot) {
+    if (rot) { ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.drawImage(c, -size / 2, -size / 2, size, size); ctx.restore(); }
+    else ctx.drawImage(c, x - size / 2, y - size / 2, size, size);
+  }
+
+  function glow(ctx, color, blur, k) { if (PERF.lowFx || !(PERF.glowShadows || PERF.baking)) return; ctx.shadowColor = color; ctx.shadowBlur = blur * (k || 1) * PERF.glowScale; }
   function noGlow(ctx) { ctx.shadowBlur = 0; ctx.shadowColor = 'transparent'; }
   function neonPath(ctx, color, width, k, pathFn) {
     ctx.save();
@@ -284,46 +353,54 @@
 
   function drawHole(ctx, h, t) {
     const R = P.HOLE_R, BH = P.config.blackHole, F = BH.radius > 0 && BH.strength > 0 ? BH.radius : R * 4;
+    const k = pxScale(ctx);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    // Wirkungsbereich: schwacher violetter Schleier + pulsierende Ringe, die nach innen laufen
-    const g = ctx.createRadialGradient(h.x, h.y, R, h.x, h.y, F);
-    g.addColorStop(0, 'rgba(150,70,255,0.30)'); g.addColorStop(0.35, 'rgba(90,30,200,0.12)'); g.addColorStop(1, 'rgba(60,20,160,0)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(h.x, h.y, F, 0, 7); ctx.fill();
+    // Wirkungsbereich: schwacher violetter Schleier (vorgerendert) + pulsierende Ringe, die nach innen laufen
+    blit(ctx, sprite('bh-halo' + F, F * 2, k, (x) => {
+      const g = x.createRadialGradient(0, 0, R, 0, 0, F);
+      g.addColorStop(0, 'rgba(150,70,255,0.30)'); g.addColorStop(0.35, 'rgba(90,30,200,0.12)'); g.addColorStop(1, 'rgba(60,20,160,0)');
+      x.fillStyle = g; x.beginPath(); x.arc(0, 0, F, 0, 7); x.fill();
+    }), h.x, h.y, F * 2);
     for (let i = 0; i < 4; i++) {
       const f = 1 - ((t * 0.35 + i / 4) % 1), rr = R + (F - R) * f * f;
       ctx.strokeStyle = `rgba(180,120,255,${0.22 * (1 - f)})`; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(h.x, h.y, rr, 0, 7); ctx.stroke();
     }
-    // Akkretionsscheibe: Spiralarme, die sich ins Zentrum drehen
-    ctx.lineCap = 'round';
-    const arms = 5, dr = Math.min(F * 0.55, R * 7);
-    for (let k = 0; k < arms; k++) {
-      const base = -t * 1.8 + k * (Math.PI * 2 / arms);
-      ctx.strokeStyle = k % 2 ? 'rgba(255,90,210,0.55)' : 'rgba(0,234,255,0.5)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      for (let j = 0; j <= 24; j++) {
-        const u = j / 24, rr = R + dr * u, a = base + u * 3.2;
-        const x = h.x + Math.cos(a) * rr, y = h.y + Math.sin(a) * rr * 0.92;
-        if (j) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    // Akkretionsscheibe: Spiralarme einmal zeichnen, dann nur noch drehen
+    const arms = 5, dr = Math.min(F * 0.55, R * 7), AS = (R + dr) * 2 + 8;
+    blit(ctx, sprite('bh-arms' + R + '-' + dr, AS, k, (x) => {
+      x.lineCap = 'round'; x.lineWidth = 2; x.globalCompositeOperation = 'lighter';
+      for (let a0 = 0; a0 < arms; a0++) {
+        const base = a0 * (Math.PI * 2 / arms);
+        x.strokeStyle = a0 % 2 ? 'rgba(255,90,210,0.5)' : 'rgba(0,234,255,0.45)';
+        x.beginPath();
+        for (let j = 0; j <= 24; j++) {
+          const u = j / 24, rr = R + dr * u, a = base + u * 3.2;
+          if (j) x.lineTo(Math.cos(a) * rr, Math.sin(a) * rr * 0.92); else x.moveTo(Math.cos(a) * rr, Math.sin(a) * rr * 0.92);
+        }
+        x.stroke();
       }
-      ctx.globalAlpha = 0.9; ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-    // Photonenring (Linsen-Effekt)
-    glow(ctx, '#ffb3ff', 22);
-    ctx.strokeStyle = 'rgba(255,220,255,0.95)'; ctx.lineWidth = 2.2;
-    ctx.beginPath(); ctx.arc(h.x, h.y, R + 3 + Math.sin(t * 6) * 0.8, 0, 7); ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,150,60,0.6)'; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.arc(h.x, h.y, R + 7, t * 2.2, t * 2.2 + 2.2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(h.x, h.y, R + 7, t * 2.2 + Math.PI, t * 2.2 + Math.PI + 2.2); ctx.stroke();
-    noGlow(ctx);
+    }), h.x, h.y, AS, -t * 1.8);
+    // Photonenring + rotierende Glutbögen (Leuchten im Sprite eingebacken)
+    const RS = (R + 40) * 2;
+    blit(ctx, sprite('bh-ring' + R, RS, k, (x, sc) => {
+      x.shadowColor = '#ffb3ff'; x.shadowBlur = 22 * sc;
+      x.strokeStyle = 'rgba(255,220,255,0.95)'; x.lineWidth = 2.2; x.beginPath(); x.arc(0, 0, R + 3, 0, 7); x.stroke();
+    }), h.x, h.y, RS * (1 + Math.sin(t * 6) * 0.004));
+    blit(ctx, sprite('bh-arcs' + R, RS, k, (x, sc) => {
+      x.shadowColor = '#ffb3ff'; x.shadowBlur = 22 * sc;
+      x.strokeStyle = 'rgba(255,150,60,0.6)'; x.lineWidth = 4;
+      x.beginPath(); x.arc(0, 0, R + 7, 0, 2.2); x.stroke();
+      x.beginPath(); x.arc(0, 0, R + 7, Math.PI, Math.PI + 2.2); x.stroke();
+    }), h.x, h.y, RS, t * 2.2);
     // Ereignishorizont: absolut schwarz
     ctx.globalCompositeOperation = 'source-over';
-    const hg = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, R + 2);
-    hg.addColorStop(0, '#000'); hg.addColorStop(0.85, '#000'); hg.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(h.x, h.y, R + 2, 0, 7); ctx.fill();
+    blit(ctx, sprite('bh-core' + R, (R + 2) * 2, k, (x) => {
+      const hg = x.createRadialGradient(0, 0, 0, 0, 0, R + 2);
+      hg.addColorStop(0, '#000'); hg.addColorStop(0.85, '#000'); hg.addColorStop(1, 'rgba(0,0,0,0)');
+      x.fillStyle = hg; x.beginPath(); x.arc(0, 0, R + 2, 0, 7); x.fill();
+    }), h.x, h.y, (R + 2) * 2);
     ctx.restore();
   }
 
@@ -339,7 +416,7 @@
         const oc = document.createElement('canvas'); oc.width = c.width; oc.height = c.height;
         const octx = oc.getContext('2d');
         octx.setTransform(v.scale, 0, 0, v.scale, v.ox, v.oy);
-        drawStatic(octx, map, v.scale, opts.glass);
+        PERF.baking = true; try { drawStatic(octx, map, v.scale, opts.glass); } finally { PERF.baking = false; }
         cache = { map, w: c.width, h: c.height, scale: v.scale, c: oc, bk };
       }
       ctx.save(); ctx.setTransform(1, 0, 0, 1, v.sx, v.sy); ctx.drawImage(cache.c, 0, 0); ctx.restore();
@@ -415,17 +492,20 @@
     for (const q of pucks) {
       if (!q.alive || !q.f || q.pb != null) continue;
       const F = P.config.pucks[q.f], col = FIELD_COL[q.f], R = F.radius;
-      ctx.save(); ctx.globalCompositeOperation = 'lighter';
-      const g = ctx.createRadialGradient(q.x, q.y, q.r, q.x, q.y, R);
-      g.addColorStop(0, q.f === 'repel' ? 'rgba(255,154,60,0.16)' : 'rgba(195,107,255,0.18)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, R, 0, 7); ctx.fill();
+      ctx.save();
+      // Schleier + gestrichelter Rand vorgerendert (normale Überblendung: auf großen Flächen viel billiger als 'lighter')
+      blit(ctx, sprite('field2-' + q.f + R + '-' + q.r, R * 2 + 4, pxScale(ctx), (x) => {
+        const g = x.createRadialGradient(0, 0, q.r, 0, 0, R);
+        g.addColorStop(0, q.f === 'repel' ? 'rgba(255,154,60,0.16)' : 'rgba(195,107,255,0.18)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+        x.fillStyle = g; x.beginPath(); x.arc(0, 0, R, 0, 7); x.fill();
+        x.strokeStyle = col; x.lineWidth = 1.5; x.globalAlpha = 0.25; x.setLineDash([4, 8]); x.beginPath(); x.arc(0, 0, R, 0, 7); x.stroke();
+      }), q.x, q.y, R * 2 + 4);
       ctx.strokeStyle = col; ctx.lineWidth = 1.5;
       for (let i = 0; i < 3; i++) {
         let f = (t * 0.5 + i / 3) % 1; if (q.f === 'attract') f = 1 - f; // Gravitation: Ringe laufen nach innen, Abstoßung: nach außen
         ctx.globalAlpha = 0.45 * Math.sin(f * Math.PI);
         ctx.beginPath(); ctx.arc(q.x, q.y, q.r + (R - q.r) * f, 0, 7); ctx.stroke();
       }
-      ctx.globalAlpha = 0.25; ctx.setLineDash([4, 8]); ctx.beginPath(); ctx.arc(q.x, q.y, R, 0, 7); ctx.stroke(); ctx.setLineDash([]);
       ctx.restore();
     }
     for (let qi = 0; qi < pucks.length; qi++) {
@@ -711,7 +791,7 @@
     constructor() { this.parts = []; this.rings = []; this.texts = []; this.flashes = new Map(); this.shakeAmt = 0; this.screenFlash = 0; this.flashColor = '255,255,255'; this.amb = 0; }
     spark(x, y, color, n, speed, opts) {
       opts = opts || {};
-      for (let i = 0; i < n && this.parts.length < 2500; i++) {
+      for (let i = 0; i < n && this.parts.length < PERF.maxParts; i++) {
         const a = opts.angle != null ? opts.angle + (Math.random() - 0.5) * (opts.spread || 1) : Math.random() * Math.PI * 2;
         const s = speed * (0.25 + Math.random() * 0.85);
         this.parts.push({ x, y, vx: Math.cos(a) * s + (opts.vx || 0), vy: Math.sin(a) * s + (opts.vy || 0), t: 0, life: (opts.life || 0.6) * (0.5 + Math.random() * 0.8), color, size: opts.size || (1.5 + Math.random() * 2), drag: opts.drag == null ? 3 : opts.drag, kind: opts.kind || 'streak', pull: opts.pull || null });
@@ -730,7 +810,7 @@
       this.amb += dt;
       if (this.amb < 1 / 60) return;
       this.amb = 0;
-      if (h && this.parts.length < 2000) {
+      if (h && this.parts.length < PERF.maxParts * 0.8 && !(PERF.lowFx && Math.random() < 0.6)) {
         const F = this.hole ? this.hole.R : 50;
         for (let i = 0; i < 2; i++) {
           const a = Math.random() * Math.PI * 2, d = F * (0.4 + Math.random() * 0.6);
@@ -910,6 +990,46 @@
     }
   }
 
+  // ------------------------------------------------------------ Vorschau im Hintergrund
+  /**
+   * Schickt Vorschau-Berechnungen an einen Web Worker. Es ist immer höchstens eine unterwegs;
+   * kommt währenddessen eine neue, wird nur die neueste nachgeschoben (ältere verfallen).
+   * request() gibt false zurück, wenn kein Worker verfügbar ist -> dann rechnet der Aufrufer selbst.
+   */
+  const predictor = (() => {
+    let w = null, ok = false, busy = false, pending = null, seq = 0;
+    let cmObj = null, cmId = 0, sentCm = 0, cfgObj = null, cfgId = 0, sentCfg = 0;
+    const cbs = new Map();
+    try {
+      w = new Worker('/predict-worker.js');
+      ok = true;
+      w.onmessage = (e) => {
+        const d = e.data; busy = false;
+        const job = cbs.get(d.id); cbs.delete(d.id);
+        if (d.missing) { sentCm = 0; sentCfg = 0; if (job && !pending) pending = job; } // Bahn/Config fehlt -> mit Daten nochmal
+        else if (job) job.cb(d);
+        if (pending) { const p = pending; pending = null; send(p.req, p.cb); }
+      };
+      w.onerror = () => { ok = false; };
+    } catch { ok = false; }
+    function send(req, cb) {
+      if (req.cm !== cmObj) { cmObj = req.cm; cmId++; }
+      if (P.config !== cfgObj) { cfgObj = P.config; cfgId++; }
+      const msg = { id: ++seq, key: req.key, cmId, cfgId, x: req.x, y: req.y, angle: req.angle, pw: req.pw, mode: req.mode, opts: req.opts };
+      if (sentCm !== cmId) { msg.cm = req.cm; sentCm = cmId; }
+      if (sentCfg !== cfgId) { msg.config = P.config; sentCfg = cfgId; }
+      cbs.set(msg.id, { req, cb }); busy = true;
+      try { w.postMessage(msg); } catch { ok = false; busy = false; cbs.delete(msg.id); }
+    }
+    return {
+      request(req, cb) {
+        if (!ok) return false;
+        if (busy) pending = { req, cb }; else send(req, cb);
+        return true;
+      },
+    };
+  })();
+
   // ------------------------------------------------------------ Schuss-Steuerung (Ziehen = Kraft)
   /**
    * Klicken setzt einen Ankerpunkt; Ziehen weg davon bestimmt die Kraft (Distanz) und die Richtung
@@ -1012,9 +1132,13 @@
       // volle Genauigkeit: gerundete Schlüssel ließen eine veraltete Vorschau stehen, obwohl mit dem exakten Winkel geschlagen wird
       const key = ball.x + ',' + ball.y + ',' + this.angle + ',' + pw + ',' + maxTime + ',' + (pk ? pk.ver : 0) + ',' + mode + ',' + (pk && pk.glass ? pk.glass.join('.') : '') + (pk && pk.noArm ? 'n' : '') + (pk && pk.ghost ? 'g' : '') + (pk && pk.gadgets ? pk.gadgets.map((g) => g.id + '@' + g.x + ',' + g.y).join(';') : '');
       if (key !== this.predKey || cm !== this.predCm) {
-        const v = P.shotVelocity(this.angle, pw, mode);
-        this.pred = P.simulate(cm, ball.x, ball.y, v.vx, v.vy, { record: true, every: 2, maxTime, pucks: pk ? pk.list : null, glass: pk ? pk.glass : null, noArm: pk ? pk.noArm : false, ghost: pk ? !!pk.ghost : false, gadgets: pk ? pk.gadgets : null, kick });
+        const opts = { record: true, every: 2, maxTime, pucks: pk ? pk.list : null, glass: pk ? pk.glass : null, noArm: pk ? pk.noArm : false, ghost: pk ? !!pk.ghost : false, gadgets: pk ? pk.gadgets : null, kick };
         this.predKey = key; this.predCm = cm;
+        // im Hintergrund rechnen lassen; bis das Ergebnis da ist, bleibt die letzte Vorschau stehen
+        if (!predictor.request({ key, cm, x: ball.x, y: ball.y, angle: this.angle, pw, mode, opts }, (r) => { this.pred = r.pred; })) {
+          const v = P.shotVelocity(this.angle, pw, mode);
+          this.pred = P.simulate(cm, ball.x, ball.y, v.vx, v.vy, opts);
+        }
       }
       return this.pred;
     }
@@ -1409,5 +1533,5 @@
 
 
 
-  window.Skill = { NEON, PUCK_COL, PUCK_NAME, FIELD_COL, FIELD_NAME, GADGET_COL, GADGET_NAME, drawGadgets, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, BlastAnim, FX, SFX, animFx, roundRect, powerColor };
+  window.Skill = { PERF, setLowFx, PerfMonitor, NEON, PUCK_COL, PUCK_NAME, FIELD_COL, FIELD_NAME, GADGET_COL, GADGET_NAME, drawGadgets, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, BlastAnim, FX, SFX, animFx, roundRect, powerColor };
 })();

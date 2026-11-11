@@ -31,6 +31,13 @@ npm install
 npm start            # http://localhost:3100 (PORT per Umgebungsvariable änderbar)
 ```
 
+## Leistung
+
+- Das Neon-Leuchten kommt aus einem einzigen **Bloom**-Durchgang pro Bild statt aus vielen einzelnen Weichzeichner-Schatten. Der Look ist derselbe, der Aufwand nur ein Bruchteil.
+- Das schwarze Loch, Feld-Schleier und der Hintergrund sind **vorgerendert** und werden nur noch eingefügt bzw. gedreht.
+- Die **Flugbahn-Vorschau** rechnet in einem Hintergrund-Thread (`public/predict-worker.js`). Das Bild ruckelt beim Ziehen nicht mehr, und die Vorschau bleibt exakt, weil der Thread dieselbe Physik nutzt.
+- **Spar-Modus** ⚡: Fällt die Bildrate 6 Sekunden lang unter etwa 30 FPS, schaltet das Spiel automatisch auf weniger Effekte, weniger Partikel und einfache Auflösung um. Der Knopf ✨/⚡ oben rechts schaltet von Hand um, die Wahl wird gemerkt.
+
 ## Updates (auch bei privatem Repo)
 
 Skillgolf bringt einen Updater mit: `tools/update.sh` holt den neuesten Stand von GitHub und installiert neue Abhängigkeiten nur, wenn sich `package-lock.json` geändert hat. Die Admin-Seite **`/admin`** zeigt die Version und hat Knöpfe für „Nach Updates suchen“, „Update installieren & neu starten“ und „Nur neu starten“.

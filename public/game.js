@@ -666,6 +666,15 @@
 
   $('btnMute').textContent = sfx.muted ? '🔇' : '🔊';
   $('btnMute').onclick = () => { $('btnMute').textContent = sfx.toggle() ? '🔇' : '🔊'; $('btnMute').blur(); };
+  // Grafik-Schalter: volle Effekte ✨ / Spar-Modus ⚡ (wird gemerkt)
+  const fxBtn = () => { $('btnFx').textContent = S.PERF.lowFx ? '⚡' : '✨'; $('btnFx').title = S.PERF.lowFx ? 'Spar-Modus aktiv – klicken für volle Effekte' : 'Volle Effekte – klicken für Spar-Modus (mehr FPS)'; };
+  fxBtn();
+  $('btnFx').onclick = () => {
+    S.setLowFx(!S.PERF.lowFx);
+    try { localStorage.setItem('skillgolf.lowfx', S.PERF.lowFx ? '1' : '0'); } catch { /* egal */ }
+    fxBtn(); $('btnFx').blur();
+    toast(S.PERF.lowFx ? '⚡ Spar-Modus: weniger Effekte, mehr FPS' : '✨ Volle Effekte');
+  };
   window.addEventListener('keydown', (e) => { if (e.code === 'KeyM' && document.activeElement.tagName !== 'INPUT') $('btnMute').click(); });
 
   // Pucks + liegende Gegnerbälle (als bewegliche Körper) für die Vorschau
@@ -782,12 +791,15 @@
   } // Sekunden, die ein Schweif nach dem Stillstand nachleuchtet
   let last = performance.now();
   let lastDraw = 0;
+  // Bildrate überwachen: bricht sie dauerhaft ein, automatisch in den Spar-Modus
+  const perfMon = new S.PerfMonitor(() => { try { localStorage.setItem('skillgolf.lowfx', '1'); } catch { /* egal */ } toast('⚡ Grafik vereinfacht für flüssigeres Spiel (✨ oben rechts schaltet zurück)'); fxBtn(); });
   function frame(now) {
     requestAnimationFrame(frame);
     // FPS-Begrenzung (config.fps, Standard 60)
     const fps = P.config.fps, iv = fps > 0 ? 1000 / fps : 0;
     if (iv && now - lastDraw < iv - 1) return;
     lastDraw = iv ? Math.max(lastDraw + iv, now - iv) : now;
+    perfMon.frame((now - last) / 1000);
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     const t = now / 1000;
     if ($('game').classList.contains('active') && map && room) {
@@ -908,6 +920,7 @@
         } else ctrl.draw(ctx, mine.ball, mine.color, cmForMe(mine), 60, t);
       }
       fx.draw(ctx);
+      view.bloom(); // Nachleuchten (ersetzt teure Einzel-Leuchtschatten)
       for (const [, a] of anims) if (a.steering) S.drawUltOverlay(ctx, view, a, a.local ? ctrl.mouse : null, t);
       fx.drawScreen(ctx, canvas.width, canvas.height);
       if (turnDeadline) {
