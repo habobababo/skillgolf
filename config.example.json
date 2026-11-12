@@ -189,6 +189,9 @@
     "heavyPuck": 2,
     "trickshot": 2,
     "trickBounces": 3,
-    "maxPuckBonus": 5
+    "maxPuckBonus": 5,
+    "holePuck": 2,
+    "holeHeavy": 3,
+    "maxHoleBonus": 10
   }
 }

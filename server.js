@@ -169,7 +169,7 @@ function startHole(room) {
     p.ball = { x: room.cm.start.x, y: room.cm.start.y };
     p.shots = 0; p.done = false; p.sunk = false; p.busyUntil = 0; p.ultUsed = false;
     p.magnet = false; p.magnetLeft = P.config.magnet.usesPerHole;
-    p.bonus = 0; p.puckBonus = 0;
+    p.bonus = 0; p.puckBonus = 0; p.holeBonus = 0;
     p.gpuckLeft = P.config.gravityPuck.perHole;
     p.gadgetQ = []; // eingesammelte Gadgets, der Reihe nach je ein Schlag
     while (p.scores.length < room.holeIndex) p.scores.push(null);
@@ -259,7 +259,8 @@ function gadgetBoom(room) {
     room.pucks = r.pucks; room.glass = r.glass;
     applyBalls(room, r.balls);
     noteArmed(room);
-    broadcast(room, { type: 'blast', idx, by: id, balls0: balls, pucks0, glass0, pucks: r.pucks, balls: r.balls, glass: r.glass });
+    const gain = holeGain(room, who, pucks0, r.pucks);
+    broadcast(room, { type: 'blast', idx, by: id, gain, balls0: balls, pucks0, glass0, pucks: r.pucks, balls: r.balls, glass: r.glass });
     broadcast(room, { type: 'toast', text: `💣 ${who ? who.name : 'Jemand'} hat das Bomben-Gadget gezündet!` });
     pauseFuses(room);
     if (room.turn !== t) return;
@@ -285,9 +286,10 @@ function handleGPuck(room, p, msg) {
   room.pucks = r.pucks; room.glass = r.glass;
   applyBalls(room, r.balls);
   noteArmed(room);
+  const gain = holeGain(room, p, pucks0, r.pucks);
   t.phase = 'blast'; t.deadline = 0;
   const ms = r.time * 1000 + 400;
-  broadcast(room, { type: 'gpuck', id: p.id, angle, power, noArm, balls0: balls, pucks0, glass0, pucks: r.pucks, balls: r.balls, glass: r.glass });
+  broadcast(room, { type: 'gpuck', id: p.id, angle, power, noArm, balls0: balls, pucks0, glass0, pucks: r.pucks, balls: r.balls, glass: r.glass, gain });
   syncRoom(room);
   setTimeout(() => {
     if (room.turn !== t || room.phase !== 'playing') return;
@@ -471,6 +473,22 @@ function applyPicks(room, p, picked) {
 function ballsOf(room, p) {
   return room.players.filter((q) => q !== p && q.ball && !q.sunk).map((q) => ({ id: q.id, x: q.ball.x, y: q.ball.y }));
 }
+/** Schwarzes-Loch-Punkte gutschreiben (mit Deckel pro Bahn); gibt die tatsächlich vergebenen Punkte zurück */
+function holeBonus(p, pts) {
+  const got = Math.max(0, Math.min(pts || 0, P.config.points.maxHoleBonus - (p.holeBonus || 0)));
+  p.holeBonus = (p.holeBonus || 0) + got;
+  return got;
+}
+/** Pucks, die außerhalb eines Schlags (Gravity-Puck, Bomben-Gadget) ins Loch fallen, dem Verursacher gutschreiben */
+function holeGain(room, p, pucks0, pucks) {
+  if (!p) return null;
+  const b = P.shotBonus(pucks0 || [], pucks, 'rest', 0);
+  if (!b.holePucks) return null;
+  const holePts = holeBonus(p, b.holePts);
+  p.bonus = (p.bonus || 0) + holePts;
+  if (p.done) p.points[room.holeIndex] = P.holePoints(p.sunk, p.shots, room.map.par) + p.bonus;
+  return { holePucks: b.holePucks, holePts };
+}
 /** angestoßene Gegnerbälle übernehmen */
 function applyBalls(room, balls) {
   for (const b of balls || []) {
@@ -489,8 +507,9 @@ function applyResult(room, p, from, r, busyMs, pucks0) {
   const cap = P.config.points.maxPuckBonus;
   const puckPts = Math.max(0, Math.min(b.puckPts, cap - (p.puckBonus || 0)));
   p.puckBonus = (p.puckBonus || 0) + puckPts;
-  const gain = { pucks: b.pucks, puckPts, trick: b.trick, nb: b.nb };
-  p.bonus = (p.bonus || 0) + puckPts + b.trick;
+  const holePts = holeBonus(p, b.holePts);
+  const gain = { pucks: b.pucks, puckPts, holePucks: b.holePucks, holePts, trick: b.trick, nb: b.nb };
+  p.bonus = (p.bonus || 0) + puckPts + holePts + b.trick;
   room.pucks = r.pucks;
   room.glass = r.glass || room.glass;
   applyBalls(room, r.balls);
@@ -613,7 +632,7 @@ function joinRoom(p, room) {
   leave(p);
   p.room = room;
   p.color = freeColor(room);
-  p.scores = []; p.points = []; p.bonus = 0; p.puckBonus = 0; p.shots = 0; p.done = false; p.sunk = false; p.busyUntil = 0; p.ball = null;
+  p.scores = []; p.points = []; p.bonus = 0; p.puckBonus = 0; p.holeBonus = 0; p.shots = 0; p.done = false; p.sunk = false; p.busyUntil = 0; p.ball = null;
   room.players.push(p);
   send(p.ws, { type: 'joined', code: room.code });
   if (room.phase === 'playing' || room.phase === 'holeEnd') {

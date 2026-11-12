@@ -119,8 +119,11 @@
     },
     points: {              // Punktesystem: mehr Punkte = besser
       holeInOne: 10, eagle: 7, birdie: 5, par: 3, bogey: 2, worse: 1, miss: 0,
-      puck: 1,             // Bonus pro versenktem Puck (Wasser oder schwarzes Loch) im eigenen Schlag
+      puck: 1,             // Bonus pro versenktem Puck (Wasser / vom Ultimate gefressen) im eigenen Schlag
       heavyPuck: 2,        // Bonus für einen schweren Puck
+      holePuck: 2,         // Bonus pro Puck, der ins schwarze Loch fällt (Schlag, Gravity-Puck, Bomben-Gadget)
+      holeHeavy: 3,        // … schwerer Puck ins schwarze Loch
+      maxHoleBonus: 10,    // höchstens so viele Schwarzes-Loch-Punkte pro Bahn
       trickshot: 2,        // Bonus, wenn der einlochende Schlag mindestens trickBounces Abpraller hatte
       trickBounces: 3,
       maxPuckBonus: 5,     // höchstens so viele Puck-Bonuspunkte pro Bahn
@@ -388,6 +391,7 @@
       if (q.pb != null) { o.pb = q.pb; o.ox = q.ox; o.oy = q.oy; }
       if (q.gp != null) o.gp = q.gp;
       if (q.fz) o.fz = q.fz;
+      if (q.gone) o.gone = q.gone;
       return o;
     });
   }
@@ -400,6 +404,7 @@
       if (q.f) o.f = q.f;
       if (q.gp != null) o.gp = q.gp;
       if (q.fz) o.fz = q.fz;
+      if (q.gone) o.gone = q.gone;
       if (q.bomb) { o.bomb = true; o.armed = !!q.armed; o.bs = q.bs || 'big'; }
       out.push(o);
     }
@@ -705,7 +710,7 @@
         }
       }
       if (!applyForces(cm, q, q.pb != null ? 1 : PK.friction, fx, fy)) { // Spielerbälle rollen wie Bälle, nicht wie Pucks
-        q.alive = false; q.vx = q.vy = 0;
+        q.alive = false; q.vx = q.vy = 0; q.gone = 'water';
         if (q.pb != null) { q.ox = cm.start.x; q.oy = cm.start.y; q.drowned = true; } // ins Wasser geschleuderter Spielerball -> zurück zum Abschlag
         s.pevents.push({ type: 'sink', x: q.x, y: q.y, c: q.c, pb: q.pb });
         continue;
@@ -742,7 +747,7 @@
           if (!q.alive) continue;
           if (s.eat && !s.done && touching(s, q, s.br, q.r)) {
             // Ultimate frisst Pucks, Bomben und Gegnerbälle (die landen wieder am Abschlag)
-            q.alive = false; q.vx = q.vy = 0;
+            q.alive = false; q.vx = q.vy = 0; q.gone = 'eat';
             if (q.pb != null) { q.ox = cm.start.x; q.oy = cm.start.y; q.eaten = true; }
             grow(s);
             s.pevents.push({ type: 'eat', x: q.x, y: q.y, c: q.c, pb: q.pb });
@@ -782,7 +787,7 @@
         if (!q.alive || q.st) continue;
         const dx = cm.hole.x - q.x, dy = cm.hole.y - q.y;
         if (dx * dx + dy * dy < HOLE_R * HOLE_R) {
-          q.alive = false; q.vx = q.vy = 0;
+          q.alive = false; q.vx = q.vy = 0; q.gone = 'hole';
           if (q.pb != null) { q.holed = true; q.ox = cm.hole.x; q.oy = cm.hole.y; } // Spielerball reingeschleudert -> zählt als eingelocht
           s.pevents.push({ type: 'swallow', x: q.x, y: q.y, c: q.c, pb: q.pb });
         }
@@ -880,12 +885,15 @@
   /** Boni eines Schlags aus Puck-Zustand vorher/nachher und Abprallern */
   function shotBonus(pucksBefore, pucksAfter, result, nb) {
     const Q = K.points;
-    let pk = 0, n = 0;
+    let pk = 0, n = 0, hn = 0, hp = 0;
     for (let i = 0; i < pucksBefore.length && i < pucksAfter.length; i++) {
-      if (pucksBefore[i].alive !== false && pucksAfter[i].alive === false) { n++; pk += pucksBefore[i].c === 'heavy' ? Q.heavyPuck : Q.puck; }
+      const a = pucksBefore[i], b = pucksAfter[i];
+      if (a.alive === false || b.alive !== false || a.gp != null) continue; // eigener Gravity-Puck zählt nicht
+      if (b.gone === 'hole') { hn++; hp += a.c === 'heavy' ? Q.holeHeavy : Q.holePuck; } // ins schwarze Loch
+      else if (b.gone === 'water' || b.gone === 'eat') { n++; pk += a.c === 'heavy' ? Q.heavyPuck : Q.puck; }
     }
     const trick = result === 'sunk' && Q.trickBounces > 0 && nb >= Q.trickBounces ? Q.trickshot : 0;
-    return { pucks: n, puckPts: pk, trick, nb };
+    return { pucks: n, puckPts: pk, holePucks: hn, holePts: hp, trick, nb };
   }
 
   /**

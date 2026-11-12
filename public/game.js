@@ -181,6 +181,7 @@
     if (g) {
       let dy = 0;
       if (g.puckPts > 0) { fx.text(pos.x, pos.y - 60 - dy, `+${g.puckPts} PUCK${g.pucks > 1 ? 'S' : ''}`, '#39ff8a', 24); dy += 28; sfx.tone(988, 0.15, 'triangle', 0.12); }
+      showHoleGain(g, p);
       if (g.trick > 0) { fx.text(map.hole.x, map.hole.y - 80, `+${g.trick} TRICKSHOT (${g.nb}× Bande)`, '#ffe03a', 28); if (mine) toast(`🎯 TRICKSHOT +${g.trick}`, true); }
       if (g.hole != null && mine) setTimeout(() => toast(`Bahn: ${g.hole} Punkte`, false), 900);
     }
@@ -245,6 +246,18 @@
   }
 
   /** Bombe explodiert (zwischen den Zügen) */
+  /** Punkte für Pucks im schwarzen Loch groß am Loch einblenden */
+  function showHoleGain(g, p) {
+    if (!g || !g.holePucks || !map) return;
+    const mine = p && p.id === myId;
+    fx.text(map.hole.x, map.hole.y - 56, g.holePts > 0 ? `+${g.holePts} 🕳️ BLACK HOLE` : '🕳️ (Bahn-Maximum erreicht)', '#c36bff', g.holePts > 0 ? 30 : 18);
+    fx.ring(map.hole.x, map.hole.y, '#c36bff', 90, 0.6, 4);
+    if (g.holePts > 0) {
+      sfx.tone(660, 0.12, 'triangle', 0.12); sfx.tone(990, 0.18, 'triangle', 0.1, null, 0.1);
+      toast(mine ? `🕳️ ${g.holePucks} Puck${g.holePucks > 1 ? 's' : ''} im schwarzen Loch: +${g.holePts} Punkte` : `🕳️ ${p ? p.name : ''}: +${g.holePts} (Puck im schwarzen Loch)`, mine);
+    }
+  }
+
   function onBlast(m) {
     if (!cm) return;
     fuseInfo = { ticking: false, list: fuseInfo.list.filter(([i]) => i !== m.idx), at: performance.now() };
@@ -254,6 +267,7 @@
     // Zug wird NICHT unterbrochen: Endstand sofort übernehmen (Vorschau stimmt), die Explosion läuft nur als Bild
     setGlass(m.glass); setPucks(m.pucks); setBalls(m.balls);
     renderBoard(); renderHud();
+    if (m.gain) { const by = room.players.find((x) => x.id === m.by); setTimeout(() => showHoleGain(m.gain, by), 1100); }
   }
   /** Gravitations-Puck wurde abgeschossen (zählt nicht als Schlag) */
   function onGPuck(m) {
@@ -319,6 +333,7 @@
     setGlass(m.glass); setPucks(m.pucks);
     setBalls(m.balls); // inkl. ins Wasser (-> Abschlag) oder ins Loch (-> eingelocht) geschleudert
     renderBoard(); renderHud();
+    if (m.gain) showHoleGain(m.gain, room.players.find((x) => x.id === m.id));
   }
   /** großer Countdown über dem Spielfeld: wächst, je weniger Zeit bleibt */
   let bigLast = null;
@@ -648,7 +663,7 @@
   function pointsHelp() {
     const Q = P.config.points;
     return `<h4 style="margin-top:12px">Punkte</h4><p class="muted pts">Hole-in-One <b>${Q.holeInOne}</b> · Eagle <b>${Q.eagle}</b> · Birdie <b>${Q.birdie}</b> · Par <b>${Q.par}</b> · Bogey <b>${Q.bogey}</b> · schlechter <b>${Q.worse}</b> · nicht eingelocht <b>${Q.miss}</b><br>`
-      + `Bonus: versenkter Puck <b>+${Q.puck}</b> (schwer <b>+${Q.heavyPuck}</b>, max. ${Q.maxPuckBonus}/Bahn) · Einlochen nach ≥${Q.trickBounces} Abprallern <b>+${Q.trickshot}</b></p>`;
+      + `Bonus: 🕳️ Puck ins schwarze Loch <b>+${Q.holePuck}</b> (schwer <b>+${Q.holeHeavy}</b>, max. ${Q.maxHoleBonus}/Bahn, auch per Gravity-Puck/Bomben-Gadget) · Puck ins Wasser/gefressen <b>+${Q.puck}</b> (schwer <b>+${Q.heavyPuck}</b>, max. ${Q.maxPuckBonus}/Bahn) · Einlochen nach ≥${Q.trickBounces} Abprallern <b>+${Q.trickshot}</b></p>`;
   }
   function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
