@@ -633,6 +633,7 @@
     bomb: 'Bombe (sprengt zu Beginn des nächsten Zugs dich und alle anderen Bälle weg, dazu 5 neue Bomben)',
     slime: 'Schleim (nächster Schlag: berührte Pucks kleben am Ball und bremsen ihn)',
   };
+  const GADGET_SHORT = { sling: 'Ball im Flug lenkbar', ghost: 'fliegt durch Pucks · immun gegen Effekte', ice: 'friert Pucks ein · langsamer · schmilzt', slime: 'Pucks kleben am Ball · bremst', bomb: 'sprengt alle Bälle weg' };
   const gIcon = (g) => GADGET_ICON[g] || '?';
   /** Gadgets zeichnen; hl: Set mit IDs, die die Vorschau einsammeln würde */
   function drawGadgets(ctx, list, t, hl) {
@@ -1604,5 +1605,5 @@
 
 
 
-  window.Skill = { TOUCH, PERF, setLowFx, PerfMonitor, NEON, PUCK_COL, PUCK_NAME, FIELD_COL, FIELD_NAME, GADGET_COL, GADGET_NAME, GADGET_ICON, drawGadgets, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, BlastAnim, FX, SFX, animFx, roundRect, powerColor };
+  window.Skill = { TOUCH, PERF, setLowFx, PerfMonitor, NEON, PUCK_COL, PUCK_NAME, FIELD_COL, FIELD_NAME, GADGET_COL, GADGET_NAME, GADGET_ICON, GADGET_LABEL, GADGET_SHORT, drawGadgets, View, drawMap, drawBall, drawPucks, drawPrediction, drawTrail, drawUltOverlay, ShotController, BallAnim, BlastAnim, FX, SFX, animFx, roundRect, powerColor };
 })();

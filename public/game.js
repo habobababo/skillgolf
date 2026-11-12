@@ -201,6 +201,8 @@
   /** Modus des nächsten Schlags ('ult' | 'sling' | null) – gleiche Regel wie der Server */
   function nextMode(p) { return p && !p.done ? P.shotMode(p.shots + 1, p.ultUsed, p.slingNext) : null; }
   function ultimateNext(p) { return nextMode(p) === 'ult'; }
+  /** Gadget, das beim nächsten Schlag dieses Spielers wirkt (null bei Ultimate/keinem) */
+  function activeGadget(p) { if (!p || p.done || nextMode(p) === 'ult') return null; const q = p.gadgetQ || []; return q[0] || null; }
 
   let bannerTimer = null;
   /** große Meldung: „DU BIST DRAN“ (+ ggf. „next BALL is …“) */
@@ -211,6 +213,7 @@
     b.classList.toggle('sling', kind === 'sling');
     b.classList.toggle('turn', kind === 'turn');
     b.classList.toggle('opp', kind === 'opp');
+    b.classList.toggle('gadget', kind === 'gadget');
     b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
     clearTimeout(bannerTimer); bannerTimer = setTimeout(() => b.classList.remove('show'), 3200);
   }
@@ -226,6 +229,11 @@
       const nm = nextMode(me());
       if (nm === 'ult') { banner('ULTIMATE BALL', 'DU BIST DRAN · next BALL is', 'ult'); sfx.alarm(); fx.screen(0.5, '255,46,136'); fx.shake(6); }
       else if (nm === 'sling') { banner('SLING BALL', 'DU BIST DRAN · next BALL is', 'sling'); sfx.sling(); fx.screen(0.3, '0,234,255'); }
+      else if (activeGadget(me())) {
+        const g = activeGadget(me());
+        $('ultBanner').style.setProperty('--gc', S.GADGET_COL[g]);
+        banner(`${S.GADGET_ICON[g]} ${S.GADGET_LABEL[g]} BALL`, 'DU BIST DRAN · next BALL is', 'gadget'); sfx.pickup(g); fx.screen(0.3, '255,255,255');
+      }
       else { banner('DU BIST DRAN', '', 'turn'); sfx.turn(); fx.screen(0.25, '0,234,255'); }
     } else if (p) {
       // Gegner ist dran: große Einblendung in seiner Farbe
@@ -568,9 +576,21 @@
       : `Am Zug: <b style="color:${tp.color}">${esc(tp.name)}</b>${flying ? ' · rollt …' : ''}`;
     updateMagnetBtn();
     const nm = nextMode(p);
-    $('ultBadge').classList.toggle('hidden', !nm);
-    $('ultBadge').classList.toggle('sling', nm === 'sling');
-    $('ultBadge').textContent = nm === 'sling' ? '🌀 SLING BALL' : '⚡ ULTIMATE BALL';
+    // aktives Gadget / Ultimate deutlich anzeigen: in der Leiste und als großer Chip über der Bahn
+    const ag = activeGadget(p), rest = ag ? (p.gadgetQ || []).slice(1) : [];
+    const ub = $('ultBadge');
+    ub.classList.toggle('hidden', !nm && !ag);
+    ub.classList.toggle('sling', nm !== 'ult' && !!ag);
+    ub.style.setProperty('--gc', ag ? S.GADGET_COL[ag] : '#ff2e88');
+    ub.innerHTML = nm === 'ult' ? '⚡ ULTIMATE BALL' : ag ? `${S.GADGET_ICON[ag]} ${S.GADGET_LABEL[ag]} AKTIV${rest.length ? ` <small>danach ${rest.map((g) => S.GADGET_ICON[g]).join('')}</small>` : ''}` : '';
+    const chip = $('gadgetChip'), showChip = !!(nm === 'ult' || ag) && turn && turn.id === myId && turn.phase === 'aim';
+    chip.classList.toggle('hidden', !showChip);
+    if (showChip) {
+      const c = nm === 'ult' ? '#ff2e88' : S.GADGET_COL[ag];
+      chip.style.setProperty('--gc', c);
+      chip.innerHTML = nm === 'ult' ? '<b>⚡ ULTIMATE BALL</b><small>frisst alles · wächst · lenken</small>'
+        : `<b>${S.GADGET_ICON[ag]} ${S.GADGET_LABEL[ag]}-BALL AKTIV</b><small>${S.GADGET_SHORT[ag]}${rest.length ? ` · danach ${rest.map((g) => S.GADGET_ICON[g]).join(' ')}` : ''}</small>`;
+    }
   }
 
   function updateMagnetBtn() {
@@ -920,10 +940,21 @@
         }
         // Eis-/Schleim-Ball: farbiger Ring (beim Schlag und solange er bereitliegt)
         const live = a && !a.ballDone && a.s;
-        const auraC = (live ? live.ice : (!a || a.ballDone) && p.iceNext) ? '#8fe8ff' : (live ? live.slime : (!a || a.ballDone) && p.slimeNext) ? '#7dff3a' : null;
-        if (auraC) {
-          ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = auraC; ctx.lineWidth = 3; ctx.globalAlpha = 0.55 + Math.sin(t * 5) * 0.25;
-          ctx.beginPath(); ctx.arc(pos.x, pos.y, P.BALL_R * sc + 7 + Math.sin(t * 7) * 1.5, 0, 7); ctx.stroke(); ctx.restore();
+        const liveG = live ? (live.ice ? 'ice' : live.slime ? 'slime' : live.ghost ? 'ghost' : null) : null;
+        const readyG = !a || a.ballDone ? activeGadget(p) : null, gg = liveG || readyG;
+        if (gg) {
+          // Gadget-Ball: pulsierender Ring in Gadget-Farbe + Symbol über dem Ball (für alle sichtbar)
+          const auraC = S.GADGET_COL[gg], R = P.BALL_R * sc;
+          ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = auraC; ctx.lineWidth = 3; ctx.globalAlpha = 0.6 + Math.sin(t * 5) * 0.3;
+          ctx.beginPath(); ctx.arc(pos.x, pos.y, R + 7 + Math.sin(t * 7) * 1.5, 0, 7); ctx.stroke();
+          ctx.setLineDash([4, 6]); ctx.lineDashOffset = -t * 30; ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(pos.x, pos.y, R + 13, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+          ctx.restore();
+          if (!live) {
+            const bx = pos.x + R + 10, by = pos.y - R - 10;
+            ctx.save(); ctx.fillStyle = 'rgba(8,8,22,0.85)'; ctx.strokeStyle = auraC; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(bx, by, 11, 0, 7); ctx.fill(); ctx.stroke();
+            ctx.font = '13px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(S.GADGET_ICON[gg], bx, by + 1); ctx.restore();
+          }
         }
         S.drawBall(ctx, pos.x, pos.y, p.color, p.id === myId ? null : p.name, (p.id === myId ? 1 : 0.9) * (a && !a.ballDone && a.s && a.s.ghost ? 0.45 : 1), null, 0, sc, p.id === myId);
       }

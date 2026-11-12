@@ -212,3 +212,22 @@ body.touch #gpHint kbd { display: none; }
 @media (max-width: 900px), (max-height: 560px) { #gpHint span { display: none; } }
 @media (max-width: 900px), (max-height: 560px) { .lbl { display: none; } .screen > .card { margin: 12px auto; } }
 @media (max-width: 1600px) { #hud .lbl { display: none; } }
+
+/* aktives Gadget */
+#ultBadge.sling { border-color: var(--gc, #00eaff); text-shadow: 0 0 10px var(--gc, #00eaff); box-shadow: 0 0 16px var(--gc, #00eaff); animation: pulse 1.2s ease-in-out infinite alternate; }
+#ultBadge small { font-style: normal; font-weight: 700; letter-spacing: 0; opacity: .75; margin-left: 4px; }
+#gadgetChip { position: absolute; bottom: 22px; left: calc(50% - 115px); transform: translateX(-50%); z-index: 6; pointer-events: none; text-align: center;
+  padding: 8px 22px; border-radius: 30px; background: rgba(8,8,22,.82); border: 2px solid var(--gc); box-shadow: 0 0 24px var(--gc), inset 0 0 14px color-mix(in srgb, var(--gc) 35%, transparent);
+  animation: chippulse 1.1s ease-in-out infinite alternate; white-space: nowrap; }
+#gadgetChip b { display: block; font-size: 18px; font-weight: 900; font-style: italic; letter-spacing: 2px; color: #fff; text-shadow: 0 0 10px var(--gc); }
+#gadgetChip small { display: block; font-size: 12px; color: var(--gc); letter-spacing: .5px; margin-top: 1px; }
+@keyframes chippulse { from { box-shadow: 0 0 14px var(--gc); } to { box-shadow: 0 0 34px var(--gc); } }
+#ultBanner.gadget b { font-size: 72px; background-image: linear-gradient(90deg, var(--gc), #ffffff, var(--gc)); filter: drop-shadow(0 0 16px var(--gc)); }
+#ultBanner.gadget small { font-size: 28px; }
+@media (max-width: 900px), (max-height: 560px) {
+  #gadgetChip { left: 50%; bottom: max(10px, env(safe-area-inset-bottom)); padding: 5px 14px; }
+  #gadgetChip b { font-size: 13px; } #gadgetChip small { font-size: 10px; }
+  #ultBanner.gadget b { font-size: 40px; } #ultBanner.gadget small { font-size: 18px; }
+}
+#ultBadge { white-space: nowrap; flex-shrink: 0; }
+@media (max-width: 900px), (max-height: 560px) { #ultBadge small { display: none; } }
