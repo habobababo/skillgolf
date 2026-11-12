@@ -116,8 +116,8 @@
     },
     "fieldCount": 1,
     "attract": {
-      "radius": 230,
-      "strength": 900
+      "radius": 300,
+      "strength": 1800
     },
     "repel": {
       "radius": 210,

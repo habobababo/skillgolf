@@ -90,7 +90,7 @@
         small: { radius: 10, mass: 0.8, blastRadius: 190, force: 1900, debris: 3 },
         fieldChance: 0.01, // Chance, dass ein freigesprengter Puck Gravitation/Abstoßung hat
       },       // so viele Pucks pro Bahn bekommen ein Feld (zufällig Gravitation oder Abstoßung)
-      attract: { radius: 230, strength: 900 },   // Gravitation: zieht den Ball an
+      attract: { radius: 300, strength: 1800 },  // Gravitation: zieht den Ball an
       repel: { radius: 210, strength: 1100 },    // Abstoßung: drückt den Ball weg
     },
     ultimate: {            // „next BALL is ULTIMATE BALL“
