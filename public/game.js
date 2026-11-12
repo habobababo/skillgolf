@@ -60,7 +60,7 @@
       case 'room': onRoom(m.room); break;
       case 'hole':
         if (m.config) P.configure(m.config);
-        map = m.map; cm = P.compile(map); anims.clear(); awaiting = false; ultBy = null; glass = []; blastAnim = null; lastTickSec = {}; fuseInfo = { ticking: false, list: [], at: 0 }; setGlass(m.glass); setPucks(m.pucks);
+        map = m.map; cm = P.compile(map); anims.clear(); awaiting = false; ultBy = null; glass = []; blastAnim = null; blastQueue = []; lastTickSec = {}; fuseInfo = { ticking: false, list: [], at: 0 }; setGlass(m.glass); setPucks(m.pucks);
         $('overlay').classList.add('hidden');
         show('game');
         toast(`Bahn ${m.index + 1}/${m.total}: ${map.name}`, true);
@@ -258,12 +258,17 @@
     }
   }
 
+  let blastQueue = []; // Kettenreaktion: weitere Explosionen laufen nacheinander ab (statt die laufende abzubrechen)
+  function startBombAnim(m) {
+    blastAnim = new S.BlastAnim(cm, P.blastState(cm, m.pucks0, m.balls0, m.glass0, m.idx));
+    blastAnim.final = m; blastAnim.bomb = true;
+  }
   function onBlast(m) {
     if (!cm) return;
     fuseInfo = { ticking: false, list: fuseInfo.list.filter(([i]) => i !== m.idx), at: performance.now() };
-    if (blastAnim) finishBlast(); // vorherige Explosion/Puck sofort fertig
-    blastAnim = new S.BlastAnim(cm, P.blastState(cm, m.pucks0, m.balls0, m.glass0, m.idx));
-    blastAnim.final = m; blastAnim.bomb = true;
+    // läuft gerade eine Explosion, startet die nächste genau dort, wo diese endet -> hinten anstellen
+    if (blastAnim && blastAnim.bomb) blastQueue.push(m);
+    else { if (blastAnim) finishBlast(); startBombAnim(m); }
     // Zug wird NICHT unterbrochen: Endstand sofort übernehmen (Vorschau stimmt), die Explosion läuft nur als Bild
     setGlass(m.glass); setPucks(m.pucks); setBalls(m.balls);
     renderBoard(); renderHud();
@@ -326,10 +331,14 @@
   }
   function glow(c, col, b) { c.shadowColor = col; c.shadowBlur = b; }
 
-  function finishBlast() {
+  function finishBlast(next) {
     const m = blastAnim.final, bomb = blastAnim.bomb;
     blastAnim = null;
-    if (bomb) return; // Bombe: Endstand wurde schon beim Knall übernommen
+    if (bomb) { // Bombe: Endstand wurde schon beim Knall übernommen
+      if (next && blastQueue.length) startBombAnim(blastQueue.shift()); // nächste Explosion der Kette zeigen
+      else blastQueue = [];
+      return;
+    }
     setGlass(m.glass); setPucks(m.pucks);
     setBalls(m.balls); // inkl. ins Wasser (-> Abschlag) oder ins Loch (-> eingelocht) geschleudert
     renderBoard(); renderHud();
@@ -895,7 +904,7 @@
       if (blastAnim) {
         blastAnim.update(dt);
         S.animFx(blastAnim, fx, sfx, '#ff6a1a', map, dt);
-        if (blastAnim.done && blastAnim.fade > 0.3) finishBlast();
+        if (blastAnim.done && (blastAnim.fade > 0.3 || blastQueue.length)) finishBlast(true);
       }
       // Countdown-Ticken der Bomben (nur wenn er läuft)
       const fs = fuseSeconds();

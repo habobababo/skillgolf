@@ -133,6 +133,7 @@
       usesPerHole: 2,      // Ladungen pro Spieler und Bahn
       strength: 3200,      // Anziehung direkt am Magneten (px/s²), nimmt nach außen ab
       radius: 420,         // Reichweite
+      pucks: 0.6,          // Magnetisieren zieht auch alle Pucks in Reichweite an (Anteil der Stärke; schwere Pucks weniger; 0 = aus)
     },
     fps: 60,               // Bildrate im Browser (0 = unbegrenzt)
     holeEndDelay: 5.5,     // Sekunden Punktetabelle zwischen den Bahnen
@@ -183,6 +184,7 @@
     c.turn.timeLimit = c.turn.timeLimit <= 0 ? 0 : lim(c.turn.timeLimit, 5, 600);
     c.magnet.usesPerHole = Math.round(lim(c.magnet.usesPerHole, 0, 20));
     c.magnet.radius = lim(c.magnet.radius, 20, 5000);
+    c.magnet.pucks = lim(c.magnet.pucks, 0, 5);
     c.pucks.count = Math.round(lim(c.pucks.count, 10, 60));
     for (const k of ['light', 'medium', 'heavy']) { c.pucks[k].mass = lim(c.pucks[k].mass, 0.05, 1000); c.pucks[k].radius = lim(c.pucks[k].radius, 4, 60); }
     c.pucks.ballMass = lim(c.pucks.ballMass, 0.05, 1000);
@@ -709,6 +711,21 @@
           fx += mx / md * f; fy += my / md * f;
         }
       }
+      if (q.pb == null && K.magnet.pucks > 0 && (cm.magnets || cm.magBalls || cm.magPucks)) {
+        // Magnetisieren: alle Pucks in Reichweite werden zum Magneten gezogen (Ball oder magnetisierter Puck;
+        // gedämpft und sie bleiben am Magneten liegen). Schwere Pucks reagieren schwächer.
+        const MR = K.magnet.radius, MS = K.magnet.strength * K.magnet.pucks / (1 + q.m * 0.1);
+        if (cm.magnets) for (let j = 0; j < cm.magnets.length; j++) {
+          const mg = cm.magnets[j], mx = mg.x - q.x, my = mg.y - q.y, md = Math.sqrt(mx * mx + my * my);
+          const mf = magForce(q, mx, my, md, MR, MS, BR + q.r); fx += mf[0]; fy += mf[1];
+        }
+        for (let j = 0; (cm.magBalls || cm.magPucks) && j < s.pucks.length; j++) {
+          const o = s.pucks[j];
+          if (o === q || !o.alive || !(o.pb != null ? cm.magBalls && cm.magBalls.indexOf(o.pb) >= 0 : cm.magPucks && cm.magPucks.indexOf(j) >= 0)) continue;
+          const mx = o.x - q.x, my = o.y - q.y, md = Math.sqrt(mx * mx + my * my);
+          const mf = magForce(q, mx, my, md, MR, MS, o.r + q.r); fx += mf[0]; fy += mf[1];
+        }
+      }
       if (!applyForces(cm, q, q.pb != null ? 1 : PK.friction, fx, fy)) { // Spielerbälle rollen wie Bälle, nicht wie Pucks
         q.alive = false; q.vx = q.vy = 0; q.gone = 'water';
         if (q.pb != null) { q.ox = cm.start.x; q.oy = cm.start.y; q.drowned = true; } // ins Wasser geschleuderter Spielerball -> zurück zum Abschlag
@@ -824,7 +841,11 @@
       const q = s.pucks[i];
       if (!q.alive) continue;
       // langsame Pucks anhalten; Spielerbälle nur, wenn keine stärkere Kraft (Feld, Loch) sie zieht
-      if (q.vx * q.vx + q.vy * q.vy < STOP_SPEED * STOP_SPEED && (q.pb == null || !(q._a2 > q._dec * q._dec))) { q.vx = 0; q.vy = 0; }
+      // langsame Körper anhalten – außer eine Kraft (Feld, Magnet, Loch) zieht stärker als die Reibung bremst;
+      // hängt einer so fest (z. B. gegen eine Wand gezogen), wird er nach 0,5 s trotzdem angehalten
+      const slow = q.vx * q.vx + q.vy * q.vy < STOP_SPEED * STOP_SPEED;
+      q._slow = slow ? (q._slow || 0) + 1 : 0;
+      if (slow && (!(q._a2 > q._dec * q._dec) || q._slow > 60)) { q.vx = 0; q.vy = 0; }
       if (q.vx !== 0 || q.vy !== 0) moving = true;
     }
     if (s.t > K.maxShotTime) {

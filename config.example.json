@@ -172,7 +172,8 @@
     "usesPerHole": 2,
     "strength": 3200,
     "radius": 420,
-    "damp": 2.5
+    "damp": 2.5,
+    "pucks": 0.6
   },
   "fps": 60,
   "holeEndDelay": 5.5,
