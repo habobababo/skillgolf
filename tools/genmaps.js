@@ -123,6 +123,59 @@ const maps = {
     W(820, 320, 980, 320, 12), Gl(820, 320, 820, 480, 10), W(820, 480, 980, 480, 12),
     W(980, 320, 980, 372, 12), W(980, 428, 980, 480, 12),
     Bm(640, 180, 22), Bm(640, 620, 22)] },
+
+  // ---------------------------------------------------------------- hart (neu)
+  '17-ereignishorizont': { name: 'Ereignishorizont', difficulty: 'hard', par: 4, start: { x: 110, y: 700 }, hole: { x: 600, y: 400 }, objects: [
+    // Wassergraben um die Mitte, zwei schmale Brücken; innen Eis und ein Ring aus Glas und Bumpern
+    R('water', 300, 150, 600, 60), R('water', 300, 590, 600, 60),
+    R('water', 300, 210, 60, 160), R('water', 300, 430, 60, 160), R('water', 840, 210, 60, 160), R('water', 840, 430, 60, 160), // Brücken bei y 370–430
+    R('ice', 360, 210, 480, 380),
+    Gl(480, 300, 720, 300), Gl(480, 500, 720, 500), Gl(480, 300, 480, 370), Gl(720, 430, 720, 500),
+    Bm(600, 250, 18), Bm(600, 550, 18), Bm(420, 400, 16), Bm(780, 400, 16),
+    R('sand', 0, 0, 260, 120), R('sand', 940, 680, 260, 120), Bm(1050, 200, 24), Bm(170, 400, 22),
+    G(1100, 800, 1200, 700), G(0, 0, 100, 100)] },
+  '18-flipper': { name: 'Flipper', difficulty: 'hard', par: 3, start: { x: 600, y: 720 }, hole: { x: 600, y: 90 }, objects: [
+    // Pinball: Aus unten links/rechts, Gummibänder als Flipper, Bumper-Pilze oben
+    R('water', 0, 760, 500, 40), R('water', 700, 760, 500, 40),
+    G(0, 560, 380, 700, 12), G(1200, 560, 820, 700, 12),
+    G(130, 0, 0, 200, 12), G(1070, 0, 1200, 200, 12),
+    Bm(420, 330, 30), Bm(780, 330, 30), Bm(600, 230, 26), Bm(600, 450, 22),
+    W(470, 150, 730, 150, 12), W(470, 80, 470, 150, 12), W(730, 80, 730, 150, 12), // Tasche: nur von oben/seitlich erreichbar
+    R('sand', 520, 500, 160, 60), R('water', 230, 250, 90, 90), R('water', 880, 250, 90, 90)] },
+  '19-inselhuepfen': { name: 'Inselhüpfen', difficulty: 'hard', par: 6, width: 1400, start: { x: 110, y: 680 }, hole: { x: 1290, y: 120 }, objects: [
+    ...waterExcept(1400, 800, [
+      [0, 580, 260, 220],      // Abschlag
+      [260, 640, 200, 60],     // Steg 1
+      [460, 560, 220, 220],    // Insel 2
+      [530, 360, 60, 200],     // Steg 2 (hoch)
+      [440, 220, 260, 140],    // Insel 3
+      [700, 260, 260, 56],     // Steg 3
+      [960, 180, 200, 260],    // Insel 4
+      [1160, 50, 240, 240],    // Loch-Insel
+    ]),
+    R('sand', 980, 330, 160, 100), Bm(570, 640, 18), Bm(1220, 240, 16), R('sand', 440, 220, 90, 140), G(440, 220, 440, 360)] },
+  '20-glaslabyrinth': { name: 'Glaslabyrinth', difficulty: 'hard', par: 4, start: { x: 100, y: 100 }, hole: { x: 1100, y: 700 }, objects: [
+    // Gänge aus Glas: schnelle Bälle brechen durch, langsame prallen ab
+    Gl(250, 0, 250, 600, 10), Gl(450, 200, 450, 800, 10), Gl(650, 0, 650, 600, 10), Gl(850, 200, 850, 800, 10),
+    W(250, 600, 250, 800, 16), W(450, 0, 450, 200, 16), W(650, 600, 650, 800, 16), W(850, 0, 850, 200, 16),
+    W(1000, 560, 1200, 560, 14), Gl(1000, 560, 1000, 800, 10),
+    R('sand', 270, 300, 160, 160), R('sand', 670, 300, 160, 160), R('water', 470, 650, 160, 150), R('water', 870, 0, 150, 120),
+    Bm(1100, 300, 22), Bm(150, 500, 20)] },
+  '21-serpentine': { name: 'Serpentine', difficulty: 'hard', par: 4, width: 1400, start: { x: 100, y: 120 }, hole: { x: 1300, y: 680 }, objects: [
+    // Abhänge drücken in die Seen, Sand bremst, Wände führen in Schlangenlinien
+    W(0, 240, 1100, 240, 16), W(300, 520, 1400, 520, 16),
+    R('slope', 300, 0, 500, 240, { angle: 270, strength: 300 }), R('water', 300, 0, 500, 40),
+    R('slope', 500, 260, 500, 260, { angle: 90, strength: 280 }), R('water', 500, 480, 500, 40),
+    R('slope', 400, 540, 600, 260, { angle: 90, strength: 260 }), R('water', 400, 760, 600, 40),
+    R('sand', 1150, 0, 250, 240), R('sand', 0, 280, 220, 200), R('ice', 1020, 540, 380, 260),
+    Bm(1250, 380, 22), Bm(200, 650, 22), G(1300, 520, 1400, 620)] },
+  '22-kreuzfeuer': { name: 'Kreuzfeuer', difficulty: 'hard', par: 4, width: 1600, height: 1000, start: { x: 120, y: 880 }, hole: { x: 1480, y: 120 }, objects: [
+    W(300, 1000, 700, 600, 16), W(900, 400, 1300, 0, 16), W(500, 300, 800, 300, 14), W(800, 700, 1100, 700, 14),
+    ...[0, 1, 2, 3].map((i) => Bm(560 + i * 160, 480 + (i % 2) * 60, 22)),
+    R('boost', 180, 560, 80, 160, { angle: 270, strength: 2200 }), R('boost', 1340, 820, 160, 80, { angle: 0, strength: 2200 }),
+    R('ice', 900, 450, 420, 250), R('water', 1000, 520, 160, 110), R('water', 0, 0, 220, 220), R('water', 1380, 980, 220, 20),
+    R('sand', 1300, 250, 300, 120), R('slope', 1100, 0, 200, 250, { angle: 0, strength: 240 }),
+    Gl(1380, 180, 1600, 180, 10), Gl(1380, 0, 1380, 180, 10), G(0, 900, 100, 1000), G(1500, 900, 1600, 800)] },
 };
 const dir = path.join(__dirname, '..', 'maps', 'builtin');
 for (const f of fs.readdirSync(dir)) if (f.endsWith('.json')) fs.unlinkSync(path.join(dir, f));
